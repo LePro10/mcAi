@@ -1,0 +1,25 @@
+# Minecraft server runtime (worlds, logs, caches, plugins and downloaded jars)
+server/
+
+# Node.js dependencies and build output
+node_modules/
+**/node_modules/
+mcp-minecraft/dist/
+*.tsbuildinfo
+
+# Local bot/runtime files
+*.log
+build_log.txt
+build_queue.json
+MEMORY.md
+IMPLEMENTATION_PLAN.md
+
+# Environment and local editor files
+.env
+.env.*
+!.env.example
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+

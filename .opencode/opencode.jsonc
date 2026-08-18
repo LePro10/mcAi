@@ -1,0 +1,11 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "mcp": {
+    "mcai": {
+      "type": "local",
+      "command": ["node", "/home/leandro/projects/mcAI/mcp-minecraft/dist/index.js"],
+      "enabled": true,
+      "timeout": 120000
+    }
+  }
+}
