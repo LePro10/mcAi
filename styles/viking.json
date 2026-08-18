@@ -1,0 +1,20 @@
+{
+  "name": "Viking",
+  "description": "Viking/Nordic style with dark wood, steep roofs, and rune decorations",
+  "materials": {
+    "primary": ["dark_oak_planks", "spruce_planks", "stripped_spruce_log"],
+    "secondary": ["cobblestone", "mossy_cobblestone", "andesite"],
+    "roof": ["dark_oak_stairs", "spruce_stairs", "stone_bricks"],
+    "decoration": ["lantern", "torch", "campfire", "iron_bars", "oak_fence", "shield"]
+  },
+  "colors": ["dark_brown", "gray", "black", "orange"],
+  "characteristics": ["steep_roofs", "longhouses", "rune_carvings", "shield_walls", "fire_pits"],
+  "tips": [
+    "Use dark oak for main structure",
+    "Very steep roofs (60+ degree angle)",
+    "Add shields on walls for decoration",
+    "Use campfires and lanterns for lighting",
+    "Include stone foundations",
+    "Build long, horizontal structures"
+  ]
+}

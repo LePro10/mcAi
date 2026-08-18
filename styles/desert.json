@@ -1,0 +1,20 @@
+{
+  "name": "Desert",
+  "description": "Desert/Middle Eastern style with sandstone, flat roofs, and small windows",
+  "materials": {
+    "primary": ["sandstone", "cut_sandstone", "smooth_sandstone"],
+    "secondary": ["terracotta", "orange_terracotta", "red_sandstone"],
+    "roof": ["sandstone_slab", "smooth_sandstone", "flat"],
+    "decoration": ["lantern", "torch", "campfire", "cactus", "dead_bush", "terracotta"]
+  },
+  "colors": ["sand", "orange", "red", "brown"],
+  "characteristics": ["flat_roofs", "small_windows", "arches", "courtyards", "towers"],
+  "tips": [
+    "Use sandstone variants for walls",
+    "Flat roofs with sandstone slabs",
+    "Small windows to keep heat out",
+    "Add arches and courtyards",
+    "Include cacti and dead bushes",
+    "Build thick walls for insulation look"
+  ]
+}
