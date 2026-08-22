@@ -1,0 +1,66 @@
+{
+  "name": "cottage",
+  "description": "Small, warm, storybook. Whitewashed walls, dark timber, flowers everywhere.",
+  "hints": [
+    "Half-timbered look: a lattice of dark logs over pale walls."
+  ],
+  "biomes": [
+    "plains",
+    "meadow",
+    "forest"
+  ],
+  "auto": true,
+  "slots": {
+    "base": "cobblestone",
+    "stone": {
+      "mix": [
+        "cobblestone",
+        "stone_bricks"
+      ],
+      "weights": [
+        0.7,
+        0.3
+      ]
+    },
+    "wall": {
+      "mix": [
+        "white_terracotta",
+        "bone_block",
+        "calcite"
+      ],
+      "weights": [
+        0.75,
+        0.15,
+        0.1
+      ]
+    },
+    "accent": "stripped_dark_oak_log",
+    "trim": "dark_oak_log",
+    "roof": "deepslate_tiles",
+    "roof_stairs": "deepslate_tile_stairs",
+    "floor": "oak_planks",
+    "glass": "glass_pane",
+    "light": "lantern",
+    "door": "oak_door",
+    "fence": "oak_fence",
+    "path": {
+      "mix": [
+        "gravel",
+        "cobblestone"
+      ],
+      "weights": [
+        0.7,
+        0.3
+      ]
+    },
+    "pillar": "stripped_oak_log",
+    "detail": {
+      "mix": [
+        "poppy",
+        "dandelion",
+        "cornflower",
+        "oxeye_daisy"
+      ]
+    }
+  }
+}

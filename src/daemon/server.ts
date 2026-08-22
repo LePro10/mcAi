@@ -119,6 +119,41 @@ export function createServer(service: BuildService, opts: ServerOptions = {}) {
         return res.end(svg);
       }
 
+      // ── Direct build endpoints, used by the MCP server ──
+      // These bypass the queue and the model: the caller has already decided
+      // what to build, so there is nothing to plan.
+      if (route === '/api/survey') {
+        const radius = Math.max(8, Math.min(96, Number(url.searchParams.get('radius')) || 32));
+        return json(res, 200, await service.survey(radius));
+      }
+
+      if (req.method === 'POST' && route === '/api/build_blueprint') {
+        const body = await readJson(req);
+        const bp = body.blueprint as Blueprint;
+        const v = validateBlueprint(bp);
+        if (!v.ok) return json(res, 400, { ok: false, errors: [formatIssues(v.errors)] });
+        if (service.busy) return json(res, 409, { ok: false, errors: ['A build is already running.'] });
+        const outcome = await service.build(bp, {
+          origin: body.origin as [number, number, number] | undefined,
+          rotate: body.rotate as 0 | 90 | 180 | 270 | undefined,
+        });
+        return json(res, outcome.ok ? 200 : 400, outcome);
+      }
+
+      if (req.method === 'POST' && route === '/api/build_prefab') {
+        const body = await readJson(req);
+        if (service.busy) return json(res, 409, { ok: false, errors: ['A build is already running.'] });
+        const outcome = await service.buildPrefab(
+          String(body.name ?? ''),
+          (body.params as Record<string, unknown>) ?? {},
+          {
+            origin: body.origin as [number, number, number] | undefined,
+            rotate: body.rotate as 0 | 90 | 180 | 270 | undefined,
+          },
+        );
+        return json(res, outcome.ok ? 200 : 400, outcome);
+      }
+
       if (req.method === 'POST' && route === '/api/build') {
         const body = await readJson(req);
         const prompt = String(body.prompt ?? '').trim();

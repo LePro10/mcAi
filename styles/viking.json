@@ -1,20 +1,83 @@
 {
-  "name": "Viking",
-  "description": "Viking/Nordic style with dark wood, steep roofs, and rune decorations",
-  "materials": {
-    "primary": ["dark_oak_planks", "spruce_planks", "stripped_spruce_log"],
-    "secondary": ["cobblestone", "mossy_cobblestone", "andesite"],
-    "roof": ["dark_oak_stairs", "spruce_stairs", "stone_bricks"],
-    "decoration": ["lantern", "torch", "campfire", "iron_bars", "oak_fence", "shield"]
-  },
-  "colors": ["dark_brown", "gray", "black", "orange"],
-  "characteristics": ["steep_roofs", "longhouses", "rune_carvings", "shield_walls", "fire_pits"],
-  "tips": [
-    "Use dark oak for main structure",
-    "Very steep roofs (60+ degree angle)",
-    "Add shields on walls for decoration",
-    "Use campfires and lanterns for lighting",
-    "Include stone foundations",
-    "Build long, horizontal structures"
-  ]
+  "name": "viking",
+  "description": "Longhouses, turf roofs, heavy dark timber, carved posts.",
+  "hints": [
+    "Long, low buildings. Roofs reach almost to the ground."
+  ],
+  "biomes": [
+    "taiga",
+    "snowy_taiga",
+    "old_growth_pine_taiga",
+    "grove",
+    "snowy_plains"
+  ],
+  "auto": true,
+  "slots": {
+    "base": {
+      "mix": [
+        "cobblestone",
+        "mossy_cobblestone"
+      ],
+      "weights": [
+        0.6,
+        0.4
+      ]
+    },
+    "stone": {
+      "mix": [
+        "cobblestone",
+        "mossy_cobblestone",
+        "stone_bricks"
+      ],
+      "weights": [
+        0.45,
+        0.3,
+        0.25
+      ]
+    },
+    "wall": {
+      "mix": [
+        "spruce_planks",
+        "stripped_spruce_log",
+        "dark_oak_planks"
+      ],
+      "weights": [
+        0.6,
+        0.25,
+        0.15
+      ]
+    },
+    "accent": "stripped_spruce_log",
+    "trim": "spruce_log",
+    "roof": {
+      "mix": [
+        "moss_block",
+        "grass_block",
+        "podzol"
+      ],
+      "weights": [
+        0.5,
+        0.35,
+        0.15
+      ]
+    },
+    "roof_stairs": "spruce_stairs",
+    "floor": "spruce_planks",
+    "glass": "brown_stained_glass_pane",
+    "light": "campfire",
+    "door": "spruce_door",
+    "fence": "spruce_fence",
+    "path": {
+      "mix": [
+        "gravel",
+        "coarse_dirt"
+      ],
+      "weights": [
+        0.6,
+        0.4
+      ]
+    },
+    "pillar": "stripped_spruce_log",
+    "detail": "chain"
+  }
 }

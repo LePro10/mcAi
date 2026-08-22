@@ -1,0 +1,94 @@
+{
+  "name": "ruins",
+  "description": "Half-collapsed, overgrown, weathered. Best with the scatter op.",
+  "hints": [
+    "Leave roofs open. Use the \"air\" entries in the wall mix as damage."
+  ],
+  "biomes": [
+    "jungle",
+    "swamp",
+    "dark_forest",
+    "savanna"
+  ],
+  "auto": false,
+  "slots": {
+    "base": {
+      "mix": [
+        "cobblestone",
+        "mossy_cobblestone",
+        "gravel"
+      ],
+      "weights": [
+        0.4,
+        0.4,
+        0.2
+      ]
+    },
+    "stone": {
+      "mix": [
+        "mossy_stone_bricks",
+        "cracked_stone_bricks",
+        "stone_bricks"
+      ],
+      "weights": [
+        0.4,
+        0.35,
+        0.25
+      ]
+    },
+    "wall": {
+      "mix": [
+        "mossy_stone_bricks",
+        "cracked_stone_bricks",
+        "stone_bricks",
+        "air"
+      ],
+      "weights": [
+        0.35,
+        0.3,
+        0.25,
+        0.1
+      ]
+    },
+    "accent": "mossy_cobblestone",
+    "trim": "stone_brick_wall",
+    "roof": "mossy_cobblestone",
+    "roof_stairs": "mossy_stone_brick_stairs",
+    "floor": {
+      "mix": [
+        "cracked_stone_bricks",
+        "gravel",
+        "moss_block"
+      ],
+      "weights": [
+        0.5,
+        0.3,
+        0.2
+      ]
+    },
+    "glass": "air",
+    "light": "torch",
+    "door": "air",
+    "fence": "mossy_stone_brick_wall",
+    "path": {
+      "mix": [
+        "gravel",
+        "coarse_dirt",
+        "moss_block"
+      ],
+      "weights": [
+        0.5,
+        0.3,
+        0.2
+      ]
+    },
+    "pillar": "stone_brick_wall",
+    "detail": {
+      "mix": [
+        "vine",
+        "glow_lichen",
+        "moss_carpet"
+      ]
+    }
+  }
+}

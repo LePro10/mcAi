@@ -31,7 +31,11 @@ export interface Palette {
   auto?: boolean;
 }
 
-const mix = (blocks: string[], weights?: number[]): MaterialMix => ({ mix: blocks, weights });
+// Omit `weights` entirely when it is not given: an explicit `undefined` field
+// survives in memory but vanishes through JSON, so a palette exported to a file
+// and read back would no longer be deep-equal to the one it came from.
+const mix = (blocks: string[], weights?: number[]): MaterialMix =>
+  (weights ? { mix: blocks, weights } : { mix: blocks });
 
 export const PALETTES: Record<string, Palette> = {
   medieval: {

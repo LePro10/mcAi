@@ -16,6 +16,8 @@ import { Executor, type CommandRunner, type Snapshot } from './executor.js';
 import { buildSize, place, sampleTerrain, survey, type PlayerInfo, type SiteWorld } from './site.js';
 import { Agent, type AgentHost, type AgentResult, type BuildOutcome, type SurveyResult } from '../agent/agent.js';
 import { LlmClient, estimateCost, type LlmConfig } from '../agent/llm.js';
+import { loadBlueprints, loadStyles } from './library.js';
+import type { Palette } from '../core/palette.js';
 
 export type JobStatus = 'queued' | 'planning' | 'building' | 'done' | 'failed' | 'cancelled';
 
@@ -59,6 +61,8 @@ export interface ServiceOptions {
   /** Render an isometric preview after each build. */
   previews?: boolean;
   agentTurns?: number;
+  /** Load user styles and blueprints from disk. */
+  library?: boolean;
 }
 
 export class BuildService extends EventEmitter implements AgentHost {
@@ -75,6 +79,10 @@ export class BuildService extends EventEmitter implements AgentHost {
   private styleOverride: string | null = null;
 
   totals = { builds: 0, blocks: 0, commands: 0, tokensIn: 0, tokensOut: 0, tokensCached: 0, costUsd: 0 };
+
+  /** Styles and blueprints loaded from `styles/` and `blueprints/`. */
+  customStyles: Record<string, Palette> = {};
+  customBlueprints: Record<string, Blueprint> = {};
 
   constructor(
     private readonly world: SiteWorld,
@@ -95,6 +103,21 @@ export class BuildService extends EventEmitter implements AgentHost {
       this.current.blocks = p.blocksChanged;
       this.emitState();
     });
+    if (opts.library !== false) this.reloadLibrary();
+  }
+
+  /** Re-read user styles and blueprints from disk. */
+  reloadLibrary(): { styles: number; blueprints: number; errors: string[] } {
+    const styles = loadStyles();
+    const blueprints = loadBlueprints();
+    this.customStyles = styles.items;
+    this.customBlueprints = blueprints.items;
+    const errors = [...styles.errors, ...blueprints.errors];
+    for (const e of errors) this.log(`Library: ${e}`, 'warn');
+    const n = Object.keys(styles.items).length;
+    const b = Object.keys(blueprints.items).length;
+    if (n || b) this.log(`Loaded ${n} custom style(s) and ${b} custom blueprint(s)`);
+    return { styles: n, blueprints: b, errors };
   }
 
   // ── Logging and state ───────────────────────────────────────────────────
@@ -116,9 +139,11 @@ export class BuildService extends EventEmitter implements AgentHost {
       totals: this.totals,
       undoDepth: this.undoStack.length,
       style: this.styleOverride,
+      customStyles: Object.keys(this.customStyles),
+      customBlueprints: Object.keys(this.customBlueprints),
       llm: this.opts.llm ? { provider: this.opts.llm.provider, model: this.opts.llm.model } : null,
       prefabs: listPrefabs().map((p) => p.name),
-      styles: Object.keys(PALETTES),
+      styles: [...Object.keys(PALETTES), ...Object.keys(this.customStyles)],
     };
   }
 
@@ -190,7 +215,7 @@ export class BuildService extends EventEmitter implements AgentHost {
 
     // Fast path: a request that names a library structure needs no model at
     // all. This is most requests, and it is instant and free.
-    const direct = matchPrefab(job.prompt);
+    const direct = this.matchStructure(job.prompt);
     const wantsCustom = /\b(like|shaped|with|and then|custom|design)\b/i.test(job.prompt);
     if (direct && (!this.opts.llm || (!wantsCustom && job.prompt.split(/\s+/).length <= 6))) {
       this.log(`"${job.prompt}" matched the ${direct} prefab — building directly`);
@@ -244,6 +269,17 @@ export class BuildService extends EventEmitter implements AgentHost {
     );
   }
 
+  /** Match a request against built-in prefabs and user blueprints alike. */
+  matchStructure(prompt: string): string | null {
+    const t = prompt.toLowerCase();
+    const custom = Object.keys(this.customBlueprints)
+      .filter((n) => t.includes(n))
+      .sort((a, b) => b.length - a.length)[0];
+    // A user's own blueprint wins over a built-in of a similar name: they put
+    // it there on purpose.
+    return custom ?? matchPrefab(prompt);
+  }
+
   // ── AgentHost ───────────────────────────────────────────────────────────
 
   async survey(radius = 32): Promise<SurveyResult> {
@@ -262,7 +298,10 @@ export class BuildService extends EventEmitter implements AgentHost {
     const origin = opts.origin ?? site.suggestedOrigin;
     const rotate = opts.rotate ?? site.suggestedRotation;
 
-    const compiled = place(bp, origin, { rotate, terrain });
+    const compiled = place(bp, origin, {
+      rotate, terrain,
+      compile: { palettes: this.customStyles },
+    });
     return this.execute(compiled, opts.note);
   }
 
@@ -271,11 +310,13 @@ export class BuildService extends EventEmitter implements AgentHost {
     params: Record<string, unknown>,
     opts: { origin?: Vec3; rotate?: 0 | 90 | 180 | 270; note?: string },
   ): Promise<BuildOutcome> {
-    const bp = getPrefab(name, params);
+    const key = name?.toLowerCase?.() ?? '';
+    const bp = getPrefab(key, params) ?? this.customBlueprints[key] ?? null;
     if (!bp) {
+      const available = [...listPrefabs().map((p) => p.name), ...Object.keys(this.customBlueprints)];
       return {
         ok: false, blocks: 0, commands: 0, seconds: 0, origin: [0, 0, 0], size: [0, 0, 0],
-        warnings: [], errors: [`Unknown structure "${name}". Available: ${listPrefabs().map((p) => p.name).join(', ')}`],
+        warnings: [], errors: [`Unknown structure "${name}". Available: ${available.join(', ')}`],
       };
     }
     return this.build(bp, opts);
@@ -362,7 +403,7 @@ export class BuildService extends EventEmitter implements AgentHost {
   }
 
   setStyle(style: string | null): boolean {
-    if (style && !PALETTES[style]) return false;
+    if (style && !PALETTES[style] && !this.customStyles[style]) return false;
     this.styleOverride = style;
     this.emitState();
     return true;

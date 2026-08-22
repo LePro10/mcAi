@@ -1,0 +1,51 @@
+{
+  "name": "elven",
+  "description": "Pale organic curves grown into the trees, gold trim, warm glow.",
+  "hints": [
+    "Cone and dome roofs. Thin pillars. Wrap structures around trees."
+  ],
+  "biomes": [
+    "forest",
+    "flower_forest",
+    "birch_forest",
+    "lush_caves"
+  ],
+  "auto": false,
+  "slots": {
+    "base": "calcite",
+    "stone": {
+      "mix": [
+        "calcite",
+        "smooth_quartz"
+      ],
+      "weights": [
+        0.7,
+        0.3
+      ]
+    },
+    "wall": {
+      "mix": [
+        "bone_block",
+        "calcite",
+        "smooth_quartz"
+      ],
+      "weights": [
+        0.5,
+        0.3,
+        0.2
+      ]
+    },
+    "accent": "gold_block",
+    "trim": "stripped_birch_log",
+    "roof": "lime_terracotta",
+    "roof_stairs": "birch_stairs",
+    "floor": "birch_planks",
+    "glass": "light_blue_stained_glass_pane",
+    "light": "end_rod",
+    "door": "birch_door",
+    "fence": "birch_fence",
+    "path": "moss_block",
+    "pillar": "quartz_pillar",
+    "detail": "azalea_leaves"
+  }
+}

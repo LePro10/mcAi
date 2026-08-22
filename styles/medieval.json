@@ -1,19 +1,86 @@
 {
-  "name": "Medieval",
-  "description": "Medieval European style with stone foundations, wooden walls, and steep roofs",
-  "materials": {
-    "primary": ["oak_planks", "cobblestone"],
-    "secondary": ["stone_bricks", "mossy_cobblestone", "stripped_oak_log"],
-    "roof": ["spruce_stairs", "dark_oak_stairs"],
-    "decoration": ["lantern", "torch", "oak_fence", "flower_pot", "glass_pane"]
-  },
-  "colors": ["brown", "gray", "green"],
-  "characteristics": ["steep_roofs", "stone_foundations", "wooden_walls", "small_windows", "chimneys"],
-  "tips": [
-    "Use cobblestone for foundations (2-3 blocks high)",
-    "Oak planks for walls, mix with stripped logs for texture",
-    "Steep roofs with spruce stairs (45 degree angle)",
-    "Small windows with glass panes, not full blocks",
-    "Add lanterns and flower pots for decoration"
-  ]
+  "name": "medieval",
+  "description": "Stone footings, timber walls, steep shingled roofs. The default for temperate biomes.",
+  "hints": [
+    "Steep roofs (pitch 1). Overhang the roof by 1. Exposed corner beams."
+  ],
+  "biomes": [
+    "plains",
+    "forest",
+    "meadow",
+    "birch_forest",
+    "river",
+    "sunflower_plains"
+  ],
+  "auto": true,
+  "slots": {
+    "base": {
+      "mix": [
+        "cobblestone",
+        "mossy_cobblestone",
+        "stone_bricks"
+      ],
+      "weights": [
+        0.6,
+        0.2,
+        0.2
+      ]
+    },
+    "stone": {
+      "mix": [
+        "stone_bricks",
+        "cracked_stone_bricks",
+        "mossy_stone_bricks"
+      ],
+      "weights": [
+        0.7,
+        0.18,
+        0.12
+      ]
+    },
+    "wall": {
+      "mix": [
+        "oak_planks",
+        "stripped_oak_log",
+        "spruce_planks"
+      ],
+      "weights": [
+        0.72,
+        0.2,
+        0.08
+      ]
+    },
+    "accent": "stripped_dark_oak_log",
+    "trim": "dark_oak_log",
+    "roof": "dark_oak_planks",
+    "roof_stairs": "dark_oak_stairs",
+    "floor": {
+      "mix": [
+        "spruce_planks",
+        "stripped_spruce_log"
+      ],
+      "weights": [
+        0.85,
+        0.15
+      ]
+    },
+    "glass": "glass_pane",
+    "light": "lantern",
+    "door": "oak_door",
+    "fence": "oak_fence",
+    "path": {
+      "mix": [
+        "cobblestone",
+        "gravel",
+        "andesite"
+      ],
+      "weights": [
+        0.55,
+        0.3,
+        0.15
+      ]
+    },
+    "pillar": "stone_bricks",
+    "detail": "stone_brick_wall"
+  }
 }

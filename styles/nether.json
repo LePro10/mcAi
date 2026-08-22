@@ -1,0 +1,51 @@
+{
+  "name": "nether",
+  "description": "Hostile fortress architecture: dark brick, blaze light, no wood.",
+  "hints": [
+    "Heavy battlements and arched bridges. No plants, no glass panes."
+  ],
+  "biomes": [
+    "nether_wastes",
+    "crimson_forest",
+    "warped_forest",
+    "basalt_deltas"
+  ],
+  "auto": true,
+  "slots": {
+    "base": "blackstone",
+    "stone": {
+      "mix": [
+        "nether_bricks",
+        "cracked_nether_bricks"
+      ],
+      "weights": [
+        0.8,
+        0.2
+      ]
+    },
+    "wall": {
+      "mix": [
+        "nether_bricks",
+        "cracked_nether_bricks",
+        "chiseled_nether_bricks"
+      ],
+      "weights": [
+        0.7,
+        0.2,
+        0.1
+      ]
+    },
+    "accent": "red_nether_bricks",
+    "trim": "polished_blackstone",
+    "roof": "nether_bricks",
+    "roof_stairs": "nether_brick_stairs",
+    "floor": "polished_blackstone_bricks",
+    "glass": "red_stained_glass_pane",
+    "light": "shroomlight",
+    "door": "crimson_door",
+    "fence": "nether_brick_fence",
+    "path": "blackstone",
+    "pillar": "chiseled_polished_blackstone",
+    "detail": "crimson_roots"
+  }
+}

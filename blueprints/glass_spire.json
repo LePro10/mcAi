@@ -1,0 +1,29 @@
+{
+  "name": "glass_spire",
+  "palette": "futuristic",
+  "parts": [
+    { "op": "foundation", "at": [0, 0, 0], "size": [17, 17], "depth": 5, "block": "@base" },
+    { "op": "cylinder", "at": [0, 0, 0], "r": 8, "h": 1, "block": "@floor" },
+
+    { "op": "cylinder", "at": [2, 1, 2], "r": 6, "h": 40, "block": "@glass", "hollow": true, "thickness": 1 },
+    { "op": "cylinder", "at": [6, 1, 6], "r": 2, "h": 40, "block": "@wall", "hollow": true, "thickness": 1 },
+
+    { "op": "repeat", "count": 8, "step": [0, 5, 0], "of": [
+      { "op": "cylinder", "at": [2, 5, 2], "r": 6, "h": 1, "block": "@trim" },
+      { "op": "cylinder", "at": [3, 5, 3], "r": 5, "h": 1, "block": "@floor" },
+      { "op": "cylinder", "at": [6, 5, 6], "r": 2, "h": 1, "block": "air" }
+    ]},
+
+    { "op": "spiral", "at": [5, 1, 5], "r": 3, "h": 39, "turn": 14, "stairs": "@roof_stairs" },
+
+    { "op": "symmetry", "axis": "xz", "about": 8, "of": [
+      { "op": "box", "at": [1, 1, 1], "size": [1, 42, 1], "block": "@accent" }
+    ]},
+
+    { "op": "cone", "at": [2, 41, 2], "r": 6, "h": 16, "block": "@wall", "hollow": true, "thickness": 1 },
+    { "op": "box", "at": [8, 55, 8], "size": [1, 6, 1], "block": "@light" },
+    { "op": "repeat", "count": 10, "step": [0, 4, 0], "of": [
+      { "op": "set", "at": [8, 4, 4], "block": "@light" }
+    ]}
+  ]
+}

@@ -1,0 +1,39 @@
+{
+  "name": "futuristic",
+  "description": "Sealed white shells, glowing seams, no visible joins.",
+  "hints": [
+    "Domes and cylinders. Run light strips as full glowing lines."
+  ],
+  "biomes": [
+    "desert",
+    "ice_spikes",
+    "beach"
+  ],
+  "auto": false,
+  "slots": {
+    "base": "polished_deepslate",
+    "stone": "smooth_quartz",
+    "wall": {
+      "mix": [
+        "white_concrete",
+        "smooth_quartz"
+      ],
+      "weights": [
+        0.7,
+        0.3
+      ]
+    },
+    "accent": "light_blue_concrete",
+    "trim": "gray_concrete",
+    "roof": "smooth_quartz",
+    "roof_stairs": "smooth_quartz_stairs",
+    "floor": "gray_concrete",
+    "glass": "tinted_glass",
+    "light": "sea_lantern",
+    "door": "iron_door",
+    "fence": "iron_bars",
+    "path": "light_gray_concrete",
+    "pillar": "quartz_pillar",
+    "detail": "light_blue_stained_glass"
+  }
+}

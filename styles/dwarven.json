@@ -1,0 +1,53 @@
+{
+  "name": "dwarven",
+  "description": "Carved into rock. Massive blocks, iron and gold inlay, lava light.",
+  "hints": [
+    "Oversized square arches, heavy pillars, everything symmetrical."
+  ],
+  "biomes": [
+    "windswept_hills",
+    "stony_peaks",
+    "dripstone_caves",
+    "jagged_peaks"
+  ],
+  "auto": true,
+  "slots": {
+    "base": "deepslate_bricks",
+    "stone": {
+      "mix": [
+        "stone_bricks",
+        "chiseled_stone_bricks",
+        "cracked_stone_bricks"
+      ],
+      "weights": [
+        0.68,
+        0.17,
+        0.15
+      ]
+    },
+    "wall": {
+      "mix": [
+        "stone_bricks",
+        "chiseled_stone_bricks",
+        "cracked_stone_bricks"
+      ],
+      "weights": [
+        0.6,
+        0.25,
+        0.15
+      ]
+    },
+    "accent": "gold_block",
+    "trim": "polished_deepslate",
+    "roof": "deepslate_tiles",
+    "roof_stairs": "deepslate_tile_stairs",
+    "floor": "polished_andesite",
+    "glass": "orange_stained_glass_pane",
+    "light": "lantern",
+    "door": "iron_door",
+    "fence": "iron_bars",
+    "path": "polished_deepslate",
+    "pillar": "chiseled_stone_bricks",
+    "detail": "iron_block"
+  }
+}

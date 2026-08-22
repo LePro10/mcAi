@@ -1,20 +1,39 @@
 {
-  "name": "Modern",
-  "description": "Modern minimalist style with clean lines, large windows, and flat roofs",
-  "materials": {
-    "primary": ["white_concrete", "smooth_stone", "light_gray_concrete"],
-    "secondary": ["glass", "iron_block", "quartz_block"],
-    "roof": ["flat", "smooth_stone_slab"],
-    "decoration": ["sea_lantern", "end_rod", "glass_pane", "iron_bars", "polished_blackstone"]
-  },
-  "colors": ["white", "gray", "black", "blue"],
-  "characteristics": ["flat_roofs", "large_windows", "clean_lines", "minimal_decoration", "open_floor_plan"],
-  "tips": [
-    "Use white concrete for main walls",
-    "Large glass panes for windows (floor to ceiling)",
-    "Flat roofs with smooth stone slabs",
-    "Add sea lanterns or end rods for lighting",
-    "Keep decoration minimal - less is more",
-    "Use iron blocks and quartz for accents"
-  ]
+  "name": "modern",
+  "description": "Flat roofs, glass curtain walls, concrete slabs, no clutter.",
+  "hints": [
+    "Flat roofs (kind \"flat\"). Full-height glass. Avoid decoration."
+  ],
+  "biomes": [
+    "plains",
+    "beach",
+    "desert"
+  ],
+  "auto": false,
+  "slots": {
+    "base": "smooth_stone",
+    "stone": "smooth_stone",
+    "wall": {
+      "mix": [
+        "white_concrete",
+        "light_gray_concrete"
+      ],
+      "weights": [
+        0.8,
+        0.2
+      ]
+    },
+    "accent": "polished_blackstone",
+    "trim": "black_concrete",
+    "roof": "smooth_quartz",
+    "roof_stairs": "smooth_quartz_stairs",
+    "floor": "polished_andesite",
+    "glass": "glass",
+    "light": "sea_lantern",
+    "door": "iron_door",
+    "fence": "iron_bars",
+    "path": "smooth_stone",
+    "pillar": "quartz_pillar",
+    "detail": "light_gray_concrete"
+  }
 }

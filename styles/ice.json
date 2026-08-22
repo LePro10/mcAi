@@ -1,0 +1,52 @@
+{
+  "name": "ice",
+  "description": "Frozen palace: packed ice, snow, blue glass, cold light.",
+  "hints": [
+    "Tall spires and cones. Prefer sea lanterns buried behind ice."
+  ],
+  "biomes": [
+    "snowy_plains",
+    "ice_spikes",
+    "frozen_peaks",
+    "snowy_slopes",
+    "frozen_river"
+  ],
+  "auto": true,
+  "slots": {
+    "base": "packed_ice",
+    "stone": {
+      "mix": [
+        "packed_ice",
+        "blue_ice"
+      ],
+      "weights": [
+        0.7,
+        0.3
+      ]
+    },
+    "wall": {
+      "mix": [
+        "packed_ice",
+        "blue_ice",
+        "snow_block"
+      ],
+      "weights": [
+        0.55,
+        0.25,
+        0.2
+      ]
+    },
+    "accent": "blue_ice",
+    "trim": "calcite",
+    "roof": "snow_block",
+    "roof_stairs": "quartz_stairs",
+    "floor": "blue_ice",
+    "glass": "light_blue_stained_glass",
+    "light": "sea_lantern",
+    "door": "birch_door",
+    "fence": "iron_bars",
+    "path": "snow_block",
+    "pillar": "quartz_pillar",
+    "detail": "ice"
+  }
+}

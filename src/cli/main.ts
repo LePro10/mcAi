@@ -79,7 +79,8 @@ ${C.bold('COMMANDS')}
   prefabs             List the built-in structures.
   styles              List the style palettes.
   prompt              Print the system prompt sent to the model.
-  serve               Start the bot daemon (same as mcai-daemon).
+  serve               Start the bot daemon and dashboard.
+  serve --sim         Same, against a simulated world. No Minecraft needed.
 
 ${C.bold('OPTIONS')}
   --out <file>        Write SVG output to a file.
@@ -95,6 +96,7 @@ ${C.bold('OPTIONS')}
 ${C.bold('EXAMPLES')}
   mcai sim "a huge medieval castle on a hill" --out castle.svg
   mcai render castle --params '{"size":61}' --ascii
+  mcai serve --sim
   mcai bench
   mcai doctor
 `.trimStart());
@@ -400,6 +402,16 @@ async function main(): Promise<void> {
     case 'styles': return cmdStyles(args);
     case 'prompt': console.log(buildSystemPrompt()); return;
     case 'serve': {
+      if (args.flags.sim) {
+        const { simMain } = await import('../daemon/sim-main.js');
+        return simMain({
+          port: num(args.flags.port, 8765),
+          host: typeof args.flags.host === 'string' ? args.flags.host : undefined,
+          seed: num(args.flags.seed, 7),
+          relief: num(args.flags.relief, 6),
+          token: typeof args.flags.token === 'string' ? args.flags.token : undefined,
+        });
+      }
       const { main: daemonMain } = await import('../daemon/main.js');
       return daemonMain();
     }

@@ -1,0 +1,84 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>mcAI</title>
+<link rel="stylesheet" href="/style.css">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><rect width='16' height='16' fill='%2318b06a'/><rect x='3' y='6' width='10' height='7' fill='%23101318'/><path d='M2 6 L8 2 L14 6z' fill='%23101318'/></svg>">
+</head>
+<body>
+
+<header class="bar">
+  <div class="brand">
+    <span class="logo" aria-hidden="true"></span>
+    <span class="name">mcAI</span>
+    <span class="version" id="version"></span>
+  </div>
+  <div class="pills" id="pills"></div>
+</header>
+
+<main>
+  <!-- ── Compose ── -->
+  <section class="panel compose">
+    <form id="build-form" autocomplete="off">
+      <label class="sr-only" for="prompt">What should mcAI build?</label>
+      <input id="prompt" name="prompt" type="text" placeholder="a huge medieval castle on the hill" spellcheck="false">
+      <button type="submit" id="build-btn">Build</button>
+    </form>
+    <div class="row controls">
+      <label for="style">Style</label>
+      <select id="style">
+        <option value="">auto (from biome)</option>
+      </select>
+      <button type="button" class="ghost" id="undo-btn" disabled>Undo</button>
+      <button type="button" class="ghost danger" id="cancel-btn" disabled>Cancel</button>
+    </div>
+    <p class="hint" id="hint">Ideas: <button class="chip" data-fill="a huge castle">a huge castle</button><button class="chip" data-fill="a wizard tower with a glowing spire">wizard tower</button><button class="chip" data-fill="a japanese temple by the water">japanese temple</button><button class="chip" data-fill="a small cottage with a flower garden">cottage</button></p>
+  </section>
+
+  <!-- ── Live build ── -->
+  <section class="panel live" id="live">
+    <div class="live-head">
+      <h2 id="live-title">Idle</h2>
+      <span class="phase" id="live-phase"></span>
+    </div>
+    <div class="progress"><div class="progress-fill" id="progress"></div></div>
+    <dl class="metrics" id="metrics">
+      <div><dt>blocks</dt><dd id="m-blocks">0</dd></div>
+      <div><dt>commands</dt><dd id="m-commands">0</dd></div>
+      <div><dt>blocks / cmd</dt><dd id="m-ratio">—</dd></div>
+      <div><dt>tokens</dt><dd id="m-tokens">0</dd></div>
+      <div><dt>cost</dt><dd id="m-cost">$0.0000</dd></div>
+      <div><dt>time</dt><dd id="m-time">0.0s</dd></div>
+    </dl>
+    <div class="preview" id="preview" aria-live="polite">
+      <p class="empty">The last build appears here.</p>
+    </div>
+  </section>
+
+  <!-- ── Log ── -->
+  <section class="panel log">
+    <h2>Activity</h2>
+    <ol id="log" class="log-list"></ol>
+  </section>
+
+  <!-- ── Library ── -->
+  <section class="panel library">
+    <h2>Library <span class="sub">click to build instantly, no tokens</span></h2>
+    <div class="gallery" id="gallery"></div>
+  </section>
+
+  <!-- ── History ── -->
+  <section class="panel history">
+    <h2>History</h2>
+    <table id="history">
+      <thead><tr><th>when</th><th>request</th><th>blocks</th><th>cmds</th><th>tokens</th><th>cost</th><th></th></tr></thead>
+      <tbody id="history-body"><tr class="empty-row"><td colspan="7">Nothing built yet.</td></tr></tbody>
+    </table>
+  </section>
+</main>
+
+<script src="/app.js"></script>
+</body>
+</html>

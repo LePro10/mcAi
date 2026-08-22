@@ -1,20 +1,62 @@
 {
-  "name": "Desert",
-  "description": "Desert/Middle Eastern style with sandstone, flat roofs, and small windows",
-  "materials": {
-    "primary": ["sandstone", "cut_sandstone", "smooth_sandstone"],
-    "secondary": ["terracotta", "orange_terracotta", "red_sandstone"],
-    "roof": ["sandstone_slab", "smooth_sandstone", "flat"],
-    "decoration": ["lantern", "torch", "campfire", "cactus", "dead_bush", "terracotta"]
-  },
-  "colors": ["sand", "orange", "red", "brown"],
-  "characteristics": ["flat_roofs", "small_windows", "arches", "courtyards", "towers"],
-  "tips": [
-    "Use sandstone variants for walls",
-    "Flat roofs with sandstone slabs",
-    "Small windows to keep heat out",
-    "Add arches and courtyards",
-    "Include cacti and dead bushes",
-    "Build thick walls for insulation look"
-  ]
+  "name": "desert",
+  "description": "Sandstone mass, flat roofs, deep arches, small windows against the sun.",
+  "hints": [
+    "Flat roofs with battlements. Wide arched doorways."
+  ],
+  "biomes": [
+    "desert",
+    "badlands",
+    "eroded_badlands",
+    "wooded_badlands"
+  ],
+  "auto": true,
+  "slots": {
+    "base": "smooth_sandstone",
+    "stone": {
+      "mix": [
+        "sandstone",
+        "cut_sandstone",
+        "smooth_sandstone"
+      ],
+      "weights": [
+        0.6,
+        0.25,
+        0.15
+      ]
+    },
+    "wall": {
+      "mix": [
+        "sandstone",
+        "cut_sandstone",
+        "smooth_sandstone"
+      ],
+      "weights": [
+        0.6,
+        0.25,
+        0.15
+      ]
+    },
+    "accent": "chiseled_sandstone",
+    "trim": "cut_sandstone",
+    "roof": "smooth_sandstone",
+    "roof_stairs": "sandstone_stairs",
+    "floor": "cut_sandstone",
+    "glass": "orange_stained_glass_pane",
+    "light": "lantern",
+    "door": "acacia_door",
+    "fence": "sandstone_wall",
+    "path": {
+      "mix": [
+        "sandstone",
+        "sand"
+      ],
+      "weights": [
+        0.6,
+        0.4
+      ]
+    },
+    "pillar": "chiseled_sandstone",
+    "detail": "orange_terracotta"
+  }
 }

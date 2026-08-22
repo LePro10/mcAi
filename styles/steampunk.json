@@ -1,0 +1,50 @@
+{
+  "name": "steampunk",
+  "description": "Copper, brick and brass. Pipes, gears, chimneys, riveted plate.",
+  "hints": [
+    "Add chimneys and chain runs. Mix copper oxidation stages on purpose."
+  ],
+  "biomes": [
+    "plains",
+    "windswept_hills",
+    "swamp"
+  ],
+  "auto": false,
+  "slots": {
+    "base": "polished_blackstone_bricks",
+    "stone": {
+      "mix": [
+        "bricks",
+        "polished_blackstone_bricks"
+      ],
+      "weights": [
+        0.75,
+        0.25
+      ]
+    },
+    "wall": {
+      "mix": [
+        "bricks",
+        "copper_block",
+        "exposed_copper"
+      ],
+      "weights": [
+        0.6,
+        0.25,
+        0.15
+      ]
+    },
+    "accent": "oxidized_copper",
+    "trim": "stripped_dark_oak_log",
+    "roof": "weathered_copper",
+    "roof_stairs": "weathered_cut_copper_stairs",
+    "floor": "polished_blackstone",
+    "glass": "brown_stained_glass_pane",
+    "light": "redstone_lamp",
+    "door": "iron_door",
+    "fence": "iron_bars",
+    "path": "bricks",
+    "pillar": "copper_bulb",
+    "detail": "chain"
+  }
+}

@@ -1,20 +1,46 @@
 {
-  "name": "Japanese",
-  "description": "Traditional Japanese style with pagoda roofs, wood, and garden elements",
-  "materials": {
-    "primary": ["spruce_planks", "birch_planks", "bamboo_planks"],
-    "secondary": ["stripped_spruce_log", "stripped_birch_log", "bamboo"],
-    "roof": ["dark_oak_stairs", "spruce_stairs", "blackstone_slab"],
-    "decoration": ["paper_lantern", "lantern", "cherry_leaves", "bamboo", "gravel", "stone_bricks"]
-  },
-  "colors": ["brown", "white", "black", "pink"],
-  "characteristics": ["pagoda_roofs", "sliding_doors", "gardens", "torii_gates", "lanterns"],
-  "tips": [
-    "Use spruce and birch for authentic wood tones",
-    "Pagoda-style roofs with upturned edges",
-    "Add cherry blossom trees and gardens",
-    "Use paper lanterns for soft lighting",
-    "Include gravel paths and stone lanterns",
-    "Keep structures low and horizontal"
-  ]
+  "name": "japanese",
+  "description": "Pagoda roofs, dark timber frames, paper walls, cherry blossom.",
+  "hints": [
+    "Use roof kind \"pagoda\": stacked tiers with a wide overhang."
+  ],
+  "biomes": [
+    "cherry_grove"
+  ],
+  "auto": true,
+  "slots": {
+    "base": "stone_bricks",
+    "stone": "stone_bricks",
+    "wall": {
+      "mix": [
+        "white_concrete",
+        "bone_block"
+      ],
+      "weights": [
+        0.85,
+        0.15
+      ]
+    },
+    "accent": "dark_oak_log",
+    "trim": "stripped_dark_oak_log",
+    "roof": "deepslate_tiles",
+    "roof_stairs": "dark_oak_stairs",
+    "floor": "stripped_birch_log",
+    "glass": "white_stained_glass_pane",
+    "light": "lantern",
+    "door": "cherry_door",
+    "fence": "dark_oak_fence",
+    "path": {
+      "mix": [
+        "gravel",
+        "stone"
+      ],
+      "weights": [
+        0.7,
+        0.3
+      ]
+    },
+    "pillar": "dark_oak_log",
+    "detail": "cherry_leaves"
+  }
 }

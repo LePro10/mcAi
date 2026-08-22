@@ -1,20 +1,68 @@
 {
-  "name": "Tropical",
-  "description": "Tropical/Polynesian style with jungle wood, palm leaves, and open structures",
-  "materials": {
-    "primary": ["jungle_planks", "bamboo_planks", "stripped_jungle_log"],
-    "secondary": ["mangrove_planks", "dark_oak_planks", "bamboo"],
-    "roof": ["jungle_leaves", "oak_leaves", "grass_block", "jungle_stairs"],
-    "decoration": ["lantern", "torch", "campfire", "cocoa_beans", "bamboo", "vine", "flowers"]
-  },
-  "colors": ["green", "brown", "yellow", "orange"],
-  "characteristics": ["open_structures", "thatched_roofs", "stilt_houses", "tiki_decor", "lush_vegetation"],
-  "tips": [
-    "Use jungle wood for authentic tropical look",
-    "Thatched roofs with leaves or grass",
-    "Open structures with plenty of airflow",
-    "Add bamboo and vines for vegetation",
-    "Build on stilts for beach/water look",
-    "Include campfires and tiki torches"
-  ]
+  "name": "tropical",
+  "description": "Open stilted structures, bamboo, palm-leaf roofs, no walls where possible.",
+  "hints": [
+    "Raise the floor on stilts. Leave walls open, use fences as railings."
+  ],
+  "biomes": [
+    "jungle",
+    "sparse_jungle",
+    "bamboo_jungle",
+    "beach",
+    "mangrove_swamp"
+  ],
+  "auto": true,
+  "slots": {
+    "base": "jungle_log",
+    "stone": {
+      "mix": [
+        "stone_bricks",
+        "mossy_stone_bricks"
+      ],
+      "weights": [
+        0.6,
+        0.4
+      ]
+    },
+    "wall": {
+      "mix": [
+        "jungle_planks",
+        "bamboo_planks"
+      ],
+      "weights": [
+        0.6,
+        0.4
+      ]
+    },
+    "accent": "bamboo_mosaic",
+    "trim": "jungle_log",
+    "roof": {
+      "mix": [
+        "jungle_leaves",
+        "moss_block"
+      ],
+      "weights": [
+        0.7,
+        0.3
+      ]
+    },
+    "roof_stairs": "jungle_stairs",
+    "floor": "bamboo_planks",
+    "glass": "glass_pane",
+    "light": "lantern",
+    "door": "jungle_door",
+    "fence": "bamboo_fence",
+    "path": {
+      "mix": [
+        "sand",
+        "gravel"
+      ],
+      "weights": [
+        0.7,
+        0.3
+      ]
+    },
+    "pillar": "bamboo_block",
+    "detail": "big_dripleaf"
+  }
 }

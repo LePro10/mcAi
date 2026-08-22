@@ -1,0 +1,59 @@
+{
+  "name": "gothic",
+  "description": "Cathedral verticality: dark stone, pointed arches, stained glass, flying buttresses.",
+  "hints": [
+    "Go tall and narrow. Tall arched windows filled with mixed stained glass."
+  ],
+  "biomes": [
+    "dark_forest",
+    "swamp",
+    "windswept_hills"
+  ],
+  "auto": false,
+  "slots": {
+    "base": "polished_blackstone_bricks",
+    "stone": {
+      "mix": [
+        "deepslate_bricks",
+        "cracked_deepslate_bricks",
+        "polished_blackstone_bricks"
+      ],
+      "weights": [
+        0.6,
+        0.2,
+        0.2
+      ]
+    },
+    "wall": {
+      "mix": [
+        "deepslate_bricks",
+        "cracked_deepslate_bricks",
+        "deepslate_tiles"
+      ],
+      "weights": [
+        0.65,
+        0.2,
+        0.15
+      ]
+    },
+    "accent": "polished_blackstone",
+    "trim": "blackstone",
+    "roof": "blackstone",
+    "roof_stairs": "blackstone_stairs",
+    "floor": "polished_deepslate",
+    "glass": {
+      "mix": [
+        "red_stained_glass",
+        "blue_stained_glass",
+        "purple_stained_glass",
+        "yellow_stained_glass"
+      ]
+    },
+    "light": "soul_lantern",
+    "door": "dark_oak_door",
+    "fence": "deepslate_brick_wall",
+    "path": "polished_blackstone",
+    "pillar": "deepslate_brick_wall",
+    "detail": "chain"
+  }
+}

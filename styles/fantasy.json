@@ -1,19 +1,50 @@
 {
-  "name": "Fantasy",
-  "description": "Fantasy style with colorful materials, towers, and magical elements",
-  "materials": {
-    "primary": ["purpur_block", "amethyst_block", "deepslate"],
-    "secondary": ["quartz_block", "calcite", "dripstone_block"],
-    "roof": ["purple_glazed_terracotta", "magenta_concrete", "amethyst_block"],
-    "decoration": ["sea_lantern", "end_rod", "amethyst_cluster", "glowstone", "chorus_plant"]
-  },
-  "colors": ["purple", "magenta", "white", "black"],
-  "characteristics": ["towers", "spires", "colorful_accents", "magical_elements", "ornate_details"],
-  "tips": [
-    "Use purpur and amethyst for magical look",
-    "Add towers and spires for vertical interest",
-    "Mix colors for vibrant appearance",
-    "Use amethyst clusters and glowstone for magical lighting",
-    "Add ornate details with quartz and calcite"
-  ]
+  "name": "fantasy",
+  "description": "Impossible geometry, purple stone, glowing crystals, tall spires.",
+  "hints": [
+    "Tall thin towers with cone roofs. Float parts of the structure."
+  ],
+  "biomes": [
+    "end_highlands",
+    "mushroom_fields",
+    "dark_forest"
+  ],
+  "auto": false,
+  "slots": {
+    "base": "deepslate_bricks",
+    "stone": {
+      "mix": [
+        "deepslate_bricks",
+        "polished_deepslate"
+      ],
+      "weights": [
+        0.7,
+        0.3
+      ]
+    },
+    "wall": {
+      "mix": [
+        "purpur_block",
+        "quartz_bricks",
+        "purpur_pillar"
+      ],
+      "weights": [
+        0.6,
+        0.25,
+        0.15
+      ]
+    },
+    "accent": "amethyst_block",
+    "trim": "purpur_pillar",
+    "roof": "purple_terracotta",
+    "roof_stairs": "purpur_stairs",
+    "floor": "polished_deepslate",
+    "glass": "purple_stained_glass_pane",
+    "light": "shroomlight",
+    "door": "warped_door",
+    "fence": "blackstone_wall",
+    "path": "polished_blackstone",
+    "pillar": "purpur_pillar",
+    "detail": "amethyst_cluster"
+  }
 }

@@ -1,0 +1,23 @@
+{
+  "name": "watchtower",
+  "palette": "medieval",
+  "parts": [
+    { "op": "foundation", "at": [0, 0, 0], "size": [9, 9], "depth": 4, "block": "@base" },
+    { "op": "box", "at": [0, 0, 0], "size": [9, 1, 9], "block": "@floor" },
+
+    { "op": "walls", "at": [0, 1, 0], "size": [9, 14, 9], "block": "@stone", "thickness": 1 },
+    { "op": "frame", "at": [0, 1, 0], "size": [9, 14, 9], "block": "@pillar", "mode": "keep" },
+    { "op": "box", "at": [1, 7, 1], "size": [7, 1, 7], "block": "@floor" },
+    { "op": "clear", "at": [1, 7, 1], "size": [2, 1, 3] },
+
+    { "op": "windows", "at": [0, 1, 0], "size": [9, 14, 9], "win": [1, 2], "spacing": 4, "glass": "@glass" },
+    { "op": "door", "at": [4, 1, 8], "facing": "south", "door": "@door" },
+    { "op": "spiral", "at": [1, 1, 1], "r": 3, "h": 13, "turn": 10, "stairs": "@roof_stairs" },
+
+    { "op": "box", "at": [-1, 15, -1], "size": [11, 1, 11], "block": "@floor" },
+    { "op": "battlements", "at": [-1, 16, -1], "size": [11, 2, 11], "height": 2, "width": 1, "gap": 1, "block": "@stone" },
+    { "op": "repeat", "count": 3, "step": [0, 5, 0], "of": [
+      { "op": "set", "at": [4, 4, 4], "block": "@light" }
+    ]}
+  ]
+}
