@@ -13,7 +13,7 @@ before the title card most channels put first.
 **Thumbnail** — split down the middle. Left: the chat line `!build a huge
 castle` in Minecraft's font on a dark blur. Right: the finished castle at
 golden hour, wide angle, from slightly below so it towers. No face, no arrows,
-no red circles. One number burned in the corner: **34,544 blocks**.
+no red circles. One number burned in the corner: **41,564 blocks**.
 
 **Description**
 
@@ -22,7 +22,7 @@ no red circles. One number burned in the corner: **34,544 blocks**.
 >
 > The interesting part is that the AI never places a block. It writes a small
 > JSON blueprint and a compiler turns that into vanilla /fill commands, merging
-> everything it can. That's why a 34,000-block castle takes two seconds and
+> everything it can. That's why a 41,000-block castle takes two seconds and
 > costs a third of a cent.
 >
 > Try it without installing Minecraft: npx mcai serve --sim
@@ -47,7 +47,7 @@ open. You type `!build a huge castle` and press enter, on camera.
 
 > *(as you type)* Watch this.
 
-**Screen** — Chat: `Building castle: 34,544 blocks, 61×39×61, 2,187 commands.`
+**Screen** — Chat: `Building castle: 41,564 blocks, 67×52×67, 3,175 commands.`
 Then the castle assembles. Do not cut away. Let it run, real time, no speed-up.
 This is the entire hook — it has to be an unbroken shot.
 
@@ -141,8 +141,8 @@ Reuse the animation from the site if that's easier.
 **Screen** — Terminal: `mcai bench`, full table.
 
 > A wall that's 1,184 blocks ships as four commands. Across everything built
-> in: nine blocks per command, and the whole library compiles in under three
-> hundred milliseconds.
+> in: eight and a half blocks per command, and the whole library compiles in a
+> third of a second.
 
 > That's the reason it's fast and the reason it's cheap. A full custom build is
 > about four thousand tokens. Anything in the library is free — no API key at

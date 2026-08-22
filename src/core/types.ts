@@ -281,10 +281,17 @@ export interface FillBox {
 }
 
 export interface CompileStats {
+  /** Every voxel written, including the air that clears the site. */
   voxels: number;
+  /**
+   * Voxels that place an actual block. This is what "blocks" means to a
+   * person, and what every reported figure should use — counting cleared air
+   * as placed blocks would inflate the numbers several-fold.
+   */
+  solidVoxels: number;
   fills: number;
   setblocks: number;
-  /** Blocks per emitted command — the compression ratio we brag about. */
+  /** Solid blocks per emitted command — the compression ratio we report. */
   ratio: number;
   bounds: { min: Vec3; max: Vec3 };
   blockCounts: Record<string, number>;

@@ -9,6 +9,7 @@ import { LlmClient, configFromEnv, estimateCost, addUsage, ZERO_USAGE } from '..
 import { buildSystemPrompt } from '../agent/prompt.js';
 import { survey, sampleTerrain, place, groundLevel, buildSize, suggestOrigin, clearRadius } from '../daemon/site.js';
 import { compile, getPrefab } from '../core/index.js';
+import { SimWorld as _SimWorld } from '../sim/world.js';
 
 function mkWorld(opts = {}) { return new SimWorld({ relief: 5, seaLevel: 64, seed: 7, ...opts }); }
 
@@ -313,4 +314,109 @@ test('a whole build costs a sane number of tokens', async () => {
   const total = result.usage.inputTokens + result.usage.outputTokens;
   assert.ok(total < 12_000, `a castle should not cost ${total} tokens`);
   assert.ok(result.builds[0].blocks > 8000, 'and it should still be a real castle');
+});
+
+// ── Sitting on the ground ─────────────────────────────────────────────────
+
+test('a building floor sits exactly one block above flat ground', () => {
+  // Offsetting the origin by the build's own minimum raises the floor by the
+  // depth of its foundation — every building on a plinth as tall as the
+  // footings meant to be buried. A distinct floor material makes it checkable.
+  const world = new SimWorld({ relief: 0, seaLevel: 64 });
+  const terrain = sampleTerrain(new SimSiteWorld(world), [0, 70, 0], 40);
+
+  const b = place({
+    parts: [
+      { op: 'foundation', at: [0, 0, 0], size: [7, 7], depth: 4, block: 'cobblestone' },
+      { op: 'box', at: [0, 0, 0], size: [7, 1, 7], block: 'gold_block' },
+      { op: 'walls', at: [0, 1, 0], size: [7, 4, 7], block: 'stone_bricks' },
+    ],
+  }, [0, 70, 0], { terrain, clearSite: false });
+
+  const floorYs = new Set(b.voxels.filter((v) => v.block === 'gold_block').map((v) => v.y));
+  assert.deepEqual([...floorYs], [65], `floor sits at ${[...floorYs]}, expected 65 on ground 64`);
+
+  const wallYs = b.voxels.filter((v) => v.block.startsWith('stone_bricks')).map((v) => v.y);
+  assert.equal(Math.min(...wallYs), 66, 'walls start directly on the floor');
+});
+
+test('a foundation reaches into the ground rather than resting on it', () => {
+  const world = new SimWorld({ relief: 0, seaLevel: 64 });
+  const terrain = sampleTerrain(new SimSiteWorld(world), [0, 70, 0], 40);
+  const b = place(getPrefab('cottage')!, [0, 70, 0], { terrain, clearSite: false });
+  const lowest = Math.min(...b.voxels.filter((v) => v.block !== 'air').map((v) => v.y));
+  assert.ok(lowest < 64, `foundation stops at ${lowest}, never entering the ground at 64`);
+});
+
+test('foundation columns reach the ground on a slope', () => {
+  const world = new SimWorld({ relief: 10, seaLevel: 64, seed: 17 });
+  const terrain = sampleTerrain(new SimSiteWorld(world), [0, 70, 0], 48);
+
+  // A bare pad, so every column tested is one the foundation is responsible
+  // for — a roof overhang legitimately hangs, and would muddy the result.
+  const b = place({
+    parts: [{ op: 'foundation', at: [0, 0, 0], size: [15, 15], depth: 4, block: 'cobblestone' }],
+  }, [0, 70, 0], { terrain, clearSite: false });
+
+  const lowest = new Map<string, number>();
+  for (const v of b.voxels) {
+    if (v.block === 'air') continue;
+    const k = `${v.x},${v.z}`;
+    const cur = lowest.get(k);
+    if (cur === undefined || v.y < cur) lowest.set(k, v.y);
+  }
+  assert.ok(lowest.size >= 15 * 15, 'the whole pad should be covered');
+
+  let floating = 0;
+  for (const [k, y] of lowest) {
+    const [x, z] = k.split(',').map(Number);
+    if (y > world.surfaceY(x, z)) floating++;
+  }
+  assert.equal(floating, 0, `${floating} of ${lowest.size} columns never reach the terrain`);
+});
+
+test('clearing the site removes what was standing there', () => {
+  const world = new SimWorld({ relief: 0, seaLevel: 64 });
+  const site = new SimSiteWorld(world);
+  const terrain = sampleTerrain(site, [0, 70, 0], 40);
+
+  const withClear = place(getPrefab('cottage')!, [0, 70, 0], { terrain, clearSite: true });
+  const without = place(getPrefab('cottage')!, [0, 70, 0], { terrain, clearSite: false });
+
+  const airOf = (b: typeof withClear) => b.voxels.filter((v) => v.block === 'air').length;
+  assert.ok(airOf(withClear) > airOf(without) + 500, 'clearing must claim the airspace');
+
+  // Everything inside the footprint above the floor is either the building or
+  // air — nothing foreign can survive between them.
+  const { min, max } = withClear.stats.bounds;
+  const known = new Set<string>();
+  for (const v of withClear.voxels) known.add(`${v.x},${v.y},${v.z}`);
+  let uncovered = 0;
+  for (let y = 65; y <= max[1]; y++)
+    for (let z = min[2] + 1; z <= max[2] - 1; z++)
+      for (let x = min[0] + 1; x <= max[0] - 1; x++) {
+        if (!known.has(`${x},${y},${z}`)) uncovered++;
+      }
+  assert.equal(uncovered, 0, `${uncovered} positions left untouched inside the build`);
+});
+
+test('clearing does not dig out the ground under the build', () => {
+  const world = new SimWorld({ relief: 0, seaLevel: 64 });
+  const terrain = sampleTerrain(new SimSiteWorld(world), [0, 70, 0], 40);
+  const b = place(getPrefab('cottage')!, [0, 70, 0], { terrain, clearSite: true });
+  const airBelowFloor = b.voxels.filter((v) => v.block === 'air' && v.y < 65);
+  assert.equal(airBelowFloor.length, 0, 'clearing must stay above the floor');
+});
+
+test('clearing does not change the texture detail of a small build', () => {
+  // Air voxels are numerous and cheap; letting them drive the detail heuristic
+  // would coarsen a cottage just because it stands in a tall clearing.
+  const world = new SimWorld({ relief: 0, seaLevel: 64 });
+  const terrain = sampleTerrain(new SimSiteWorld(world), [0, 70, 0], 40);
+  const withClear = place(getPrefab('cottage')!, [0, 70, 0], { terrain, clearSite: true });
+  const without = place(getPrefab('cottage')!, [0, 70, 0], { terrain, clearSite: false });
+
+  const solids = (b: typeof withClear) =>
+    Object.entries(b.stats.blockCounts).filter(([k]) => k !== 'air').sort();
+  assert.deepEqual(solids(withClear), solids(without), 'the building itself must be identical');
 });

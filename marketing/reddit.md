@@ -31,7 +31,7 @@ biome first.")*
 > bury itself in one. Materials come from the biome: the same request gives you
 > spruce and turf in a taiga, sandstone with a flat roof in a desert.
 >
-> The clip is a 61×61 castle. 34,544 blocks, about two seconds.
+> The clip is a 61×61 castle. 41,564 blocks, about two seconds.
 >
 > The part I'm actually proud of: the AI doesn't place blocks. It writes a small
 > JSON "blueprint" — about sixty lines describing intent, like *cylinder radius
@@ -88,7 +88,7 @@ biome first.")*
 > Context: an agent that builds structures in Minecraft. The obvious design is
 > tool calls that place blocks. That's what I had, and a castle cost tens of
 > thousands of output tokens and just as many round trips, because the model was
-> literally enumerating 34,000 coordinates.
+> literally enumerating 40,000 coordinates.
 >
 > The fix was to stop having it produce the output at all. I defined a small
 > declarative DSL — twenty-three ops — and the model emits about sixty lines of
@@ -131,8 +131,8 @@ biome first.")*
 
 **Title**
 
-> Greedy 3D box decomposition, or: how to build a castle in 2,187 commands
-> instead of 34,544
+> Greedy 3D box decomposition, or: how to build a castle in 3,175 commands
+> instead of 41,564
 
 **Body**
 
@@ -147,8 +147,8 @@ biome first.")*
 > material matches, then +Z while the entire X-run matches, then +Y while the
 > entire XZ-slab matches. Claim the box, emit one `/fill`, continue.
 >
-> Across my test set: 45,942 blocks → 5,097 commands, 9× compression, 292 ms for
-> all of it. A hollow 20×8×20 stone wall is 1,184 voxels and four boxes.
+> Across my test set: 47,043 blocks → 5,572 commands, 8.4× compression, 337 ms
+> for all of it. A hollow 20×8×20 stone wall is 1,184 voxels and four boxes.
 >
 > Three things I got wrong first:
 >

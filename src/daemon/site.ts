@@ -200,6 +200,8 @@ export function clearRadius(world: SiteWorld, centre: Vec3, terrain: TerrainSamp
 export interface PlacementOptions {
   /** Where the origin sits relative to the build. */
   place?: 'center' | 'corner';
+  /** Clear trees and terrain out of the build's own airspace. */
+  clearSite?: boolean;
   /** Sit the build on the ground under its footprint. */
   ground?: boolean;
   rotate?: 0 | 90 | 180 | 270;
@@ -218,8 +220,9 @@ export interface PlacementOptions {
  */
 export function place(bp: Blueprint, origin: Vec3, opts: PlacementOptions = {}): CompiledBuild {
   const rotate = opts.rotate ?? 0;
-  const probe = compile(bp, { ...opts.compile, origin: [0, 0, 0], rotate });
-  if (probe.stats.voxels === 0) return probe;
+  // The probe only measures; clearing it would waste a pass and skew nothing.
+  const probe = compile(bp, { ...opts.compile, origin: [0, 0, 0], rotate, clearSite: false });
+  if (probe.stats.solidVoxels === 0) return probe;
 
   const { min, max } = probe.stats.bounds;
   let ox = origin[0];
@@ -231,12 +234,21 @@ export function place(bp: Blueprint, origin: Vec3, opts: PlacementOptions = {}):
 
   let oy = origin[1];
   if (opts.ground !== false && opts.terrain) {
-    // Sit on the median ground under the footprint, not under the player.
-    const g = groundLevel(opts.terrain, ox + min[0], oz + min[2], ox + max[0], oz + max[2]);
-    oy = g + 1 - min[1];
+    // Sit the blueprint's floor — local y=0 by convention — one block above the
+    // median ground under the footprint.
+    //
+    // Offsetting by the build's own minimum instead would raise the floor by
+    // the depth of its foundation, standing every building on a plinth as tall
+    // as the footings that were supposed to be buried. Foundations reach down
+    // on their own, through the terrain sample.
+    oy = groundLevel(opts.terrain, ox + min[0], oz + min[2], ox + max[0], oz + max[2]) + 1;
   }
 
-  return compile(bp, { ...opts.compile, origin: [ox, oy, oz], rotate, terrain: opts.terrain });
+  return compile(bp, {
+    ...opts.compile,
+    origin: [ox, oy, oz], rotate, terrain: opts.terrain,
+    clearSite: opts.clearSite ?? true,
+  });
 }
 
 /** Human-readable dimensions of a compiled build. */

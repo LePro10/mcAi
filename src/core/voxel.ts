@@ -42,6 +42,20 @@ export class VoxelBuffer {
   get size(): number { return this.map.size; }
   get isEmpty(): boolean { return this.map.size === 0; }
 
+  /**
+   * Voxels that place an actual block.
+   *
+   * Site clearing writes a great deal of air, which is cheap to emit but would
+   * otherwise inflate any decision keyed on size — most importantly the
+   * texture-detail heuristic, which would coarsen a small building just because
+   * it stands in a tall clearing.
+   */
+  get solidCount(): number {
+    let n = 0;
+    for (const block of this.map.values()) if (!isAir(block)) n++;
+    return n;
+  }
+
   set(x: number, y: number, z: number, block: string, keep = false): void {
     x = Math.round(x); y = Math.round(y); z = Math.round(z);
     if (Math.abs(x) >= OFFSET || Math.abs(y) >= OFFSET || Math.abs(z) >= OFFSET) return;

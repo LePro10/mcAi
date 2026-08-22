@@ -43,6 +43,22 @@ export interface CompileOptions {
   detail?: DetailLevel;
   /** Voxel count above which `detail` degrades one step. */
   autoDetailThreshold?: number;
+  /**
+   * Clear the build's own airspace before placing it.
+   *
+   * Without this, a castle raised in a forest keeps the forest: trees stand
+   * inside the great hall, and a hillside that rises through the footprint
+   * leaves dirt embedded in the walls. Clearing runs in keep mode, so it only
+   * touches positions the blueprint itself leaves empty, and only from the
+   * ground upward — never into the foundation below it.
+   */
+  clearSite?: boolean;
+  /**
+   * Blocks of clearance beyond the footprint. Defaults to 0: any margin also
+   * widens the build's reported bounds, and with them its size, its snapshot
+   * and its forceloaded region.
+   */
+  clearMargin?: number;
 }
 
 // ── Transform algebra (the dihedral group D4 plus a translation) ───────────
@@ -151,6 +167,36 @@ class Compiler {
     };
   }
 
+  /**
+   * Fill the build's own airspace with air, wherever the blueprint left a gap.
+   *
+   * Runs from the ground surface up, so foundations underneath are untouched.
+   * Air merges into very few fills, so this costs a handful of commands rather
+   * than one per cleared block.
+   */
+  private clearSite(): void {
+    if (this.buf.isEmpty) return;
+    const margin = Math.max(0, Math.round(this.opts.clearMargin ?? 0));
+
+    const x1 = this.buf.minX - margin, x2 = this.buf.maxX + margin;
+    const z1 = this.buf.minZ - margin, z2 = this.buf.maxZ + margin;
+    const top = this.buf.maxY;
+
+    const volume = (x2 - x1 + 1) * (z2 - z1 + 1) * (top - this.buf.minY + 1);
+    if (volume > 4_000_000) {
+      this.warn('Build is too large to clear its site automatically.');
+      return;
+    }
+
+    // Clear from the floor up. Local y=0 is the floor by convention, so this
+    // removes a hillside rising through the walls without hollowing out the
+    // ground the foundation is anchored in.
+    const from = Math.max(this.buf.minY, 0);
+    for (let z = z1; z <= z2; z++)
+      for (let x = x1; x <= x2; x++)
+        for (let y = from; y <= top; y++) this.buf.set(x, y, z, 'air', true);
+  }
+
   /** Normalise a block spec once, recording anything suspicious. */
   private finish(spec: string): string {
     const n = normalizeBlock(spec);
@@ -161,6 +207,7 @@ class Compiler {
 
   run(rootRotation: 0 | 90 | 180 | 270 = 0): void {
     this.emit(this.bp.parts ?? [], { ...IDENTITY, rot: rootRotation });
+    if (this.opts.clearSite) this.clearSite();
     if (this.unknownBlocks.size) {
       const list = [...this.unknownBlocks].slice(0, 6).join(', ');
       this.warn(`Unrecognised block ids (kept as written, the server may reject them): ${list}`);
@@ -392,7 +439,7 @@ export function compile(bp: Blueprint, opts: CompileOptions = {}): CompiledBuild
   // Size is only known after the first pass, so re-run once when the build
   // turned out large enough that finer noise is not worth the commands.
   if (opts.detail === undefined) {
-    const want = autoDetail(c.buf.size, opts.autoDetailThreshold);
+    const want = autoDetail(c.buf.solidCount, opts.autoDetailThreshold);
     if (want !== 'med' && DETAIL_ORDER.indexOf(want) > DETAIL_ORDER.indexOf('med')) {
       c = runCompiler(bp, { ...opts, detail: want });
     }
@@ -408,6 +455,7 @@ export function compile(bp: Blueprint, opts: CompileOptions = {}): CompiledBuild
   for (const b of boxes) (b.volume === 1 ? setblocks++ : fills++);
 
   const voxels = [...world.voxels()];
+  const solidVoxels = world.solidCount;
   const t1 = Date.now();
 
   return {
@@ -417,9 +465,10 @@ export function compile(bp: Blueprint, opts: CompileOptions = {}): CompiledBuild
     voxels,
     stats: {
       voxels: world.size,
+      solidVoxels,
       fills,
       setblocks,
-      ratio: commands.length ? +(world.size / commands.length).toFixed(1) : 0,
+      ratio: commands.length ? +(solidVoxels / commands.length).toFixed(1) : 0,
       bounds: world.isEmpty
         ? { min: [0, 0, 0], max: [0, 0, 0] }
         : { min: [world.minX, world.minY, world.minZ], max: [world.maxX, world.maxY, world.maxZ] },

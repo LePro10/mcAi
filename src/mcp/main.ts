@@ -180,7 +180,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         return ok(JSON.stringify({
           name: built.name,
           size: { width: size[0], height: size[1], depth: size[2] },
-          blocks: s.voxels,
+          blocks: s.solidVoxels,
           commands: built.commands.length,
           blocksPerCommand: s.ratio,
           compileMs: s.compileMs,

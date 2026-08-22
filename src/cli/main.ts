@@ -25,6 +25,7 @@ import { LlmClient, configFromEnv, estimateCost } from '../agent/llm.js';
 import { buildSystemPrompt } from '../agent/prompt.js';
 import { place, sampleTerrain } from '../daemon/site.js';
 import { SimSiteWorld } from '../sim/host.js';
+import { captureRegion } from '../sim/render.js';
 
 const C = {
   dim: (s: string) => `\x1b[2m${s}\x1b[0m`,
@@ -89,6 +90,7 @@ ${C.bold('OPTIONS')}
   --relief <n>        Terrain roughness for the simulator (0 = superflat).
   --scale <n>         Pixels per block in the SVG.
   --detail <level>    Texture granularity: off | low | med | high.
+  --isolate           Render only the build, without the surrounding ground.
   --style <name>      Force a style palette.
   --params <json>     Prefab parameters, e.g. --params '{"size":61}'
   --json              Machine-readable output.
@@ -136,11 +138,11 @@ function cmdBench(args: Args): void {
     const ms = Date.now() - t0;
     const size = b.stats.bounds.max.map((v, i) => v - b.stats.bounds.min[i] + 1);
     rows.push({
-      name, blocks: b.stats.voxels, commands: b.commands.length,
+      name, blocks: b.stats.solidVoxels, commands: b.commands.length,
       ratio: b.stats.ratio, ms, size: size.join('x'),
       warnings: b.stats.warnings.length,
     });
-    totalVox += b.stats.voxels; totalCmd += b.commands.length; totalMs += ms;
+    totalVox += b.stats.solidVoxels; totalCmd += b.commands.length; totalMs += ms;
   }
 
   if (args.flags.json) { console.log(JSON.stringify(rows, null, 2)); return; }
@@ -197,10 +199,11 @@ function loadBlueprint(what: string, args: Args): Blueprint | null {
   return bp;
 }
 
-function emit(build: CompiledBuild, args: Args, label: string): void {
+/** Report `build`'s numbers, but draw `scene` — which may include terrain. */
+function emit(build: CompiledBuild, args: Args, label: string, scene = build): void {
   const stats = build.stats;
   console.log(
-    `\n  ${C.bold(label)}  ${fmt(stats.voxels)} blocks  ${C.dim('·')}  ` +
+    `\n  ${C.bold(label)}  ${fmt(stats.solidVoxels)} blocks  ${C.dim('·')}  ` +
     `${fmt(build.commands.length)} commands  ${C.dim('·')}  ` +
     `${stats.ratio} blocks/cmd  ${C.dim('·')}  ${stats.compileMs}ms`,
   );
@@ -210,14 +213,14 @@ function emit(build: CompiledBuild, args: Args, label: string): void {
 
   if (args.flags.ascii || (!args.flags.out && process.stdout.isTTY)) {
     console.log(C.dim('\n  top-down'));
-    console.log(renderAsciiTop(build, Math.min(100, (process.stdout.columns ?? 80) - 4)));
+    console.log(renderAsciiTop(scene, Math.min(100, (process.stdout.columns ?? 80) - 4)));
     console.log(C.dim('\n  elevation'));
-    console.log(renderAsciiFront(build, Math.min(100, (process.stdout.columns ?? 80) - 4)));
+    console.log(renderAsciiFront(scene, Math.min(100, (process.stdout.columns ?? 80) - 4)));
   }
 
   const out = typeof args.flags.out === 'string' ? args.flags.out : null;
   if (out) {
-    const svg = renderIsoSvg(build, {
+    const svg = renderIsoSvg(scene, {
       scale: num(args.flags.scale, 5),
       background: (args.flags.bg as string) ?? '#12141a',
     });
@@ -310,7 +313,14 @@ async function cmdSim(args: Args): Promise<void> {
     `${C.dim('·')} ${elapsed}s total`,
   );
 
-  if (built) emit(built, args, 'result');
+  if (built) {
+    // Show the build standing in the ground it was fitted to, unless asked
+    // otherwise: siting problems only show up in context.
+    const shown = args.flags.isolate
+      ? built
+      : captureRegion(world, built.stats.bounds.min, built.stats.bounds.max);
+    emit(built, args, 'result', shown);
+  }
   if (world.stats.failures > 0) process.exitCode = 1;
 }
 
@@ -333,8 +343,8 @@ async function cmdDoctor(args: Args): Promise<void> {
   // Compiler self-test: a real build has to come out the far end.
   try {
     const b = compile(getPrefab('castle')!, { origin: [0, 64, 0] });
-    check('compiler', b.stats.voxels > 10_000 && b.commands.length > 0,
-      `castle → ${fmt(b.stats.voxels)} blocks in ${fmt(b.commands.length)} commands (${b.stats.compileMs}ms)`);
+    check('compiler', b.stats.solidVoxels > 10_000 && b.commands.length > 0,
+      `castle → ${fmt(b.stats.solidVoxels)} blocks in ${fmt(b.commands.length)} commands (${b.stats.compileMs}ms)`);
   } catch (err) {
     check('compiler', false, (err as Error).message);
   }

@@ -18,15 +18,15 @@ terrain, matched to your biome, in seconds, for fractions of a cent.
 
 ```
 you:  !build a huge medieval castle
-mcAI: Building castle: 53,619 blocks, 61×39×61, 2,949 commands.
-mcAI: Done. 53,619 blocks · $0.0031. !undo if you hate it.
+mcAI: Building castle: 41,564 blocks, 67×52×67, 3,175 commands.
+mcAI: Done. 44,611 blocks changed · $0.0031. !undo if you hate it.
 ```
 
 - **Terrain-aware.** Foundations follow the ground instead of floating over it
   or burying themselves in a hill.
 - **Biome-aware.** A house in a taiga is spruce and turf; the same request in a
   desert is sandstone with a flat roof.
-- **Fast.** A full castle is ~3,000 commands, not 53,000 — see
+- **Fast.** A full castle is ~3,000 commands, not 42,000 — see
   [how](#how-it-is-fast) below.
 - **Cheap.** Roughly 3,000–6,000 tokens for a custom build. Library structures
   cost nothing at all.
@@ -138,11 +138,11 @@ $ mcai bench
 
   structure      blocks   commands   blocks/cmd    ms   size
   ────────────────────────────────────────────────────────────────
-  cottage           795        153          5.2    18   12x16x15
-  castle         15,882      1,287         12.3   128   47x28x47
-  pyramid         8,359        272         30.7    42   31x19x31
+  cottage           795        153          5.2    21   12x16x15
+  castle         16,628      1,356         12.3   162   47x33x47
+  pyramid         8,057        280         28.8    40   31x19x31
   ────────────────────────────────────────────────────────────────
-  total          45,942      5,097          9.0   292
+  total          47,043      5,572          8.4   337
 ```
 
 The model never sees a voxel. It writes about sixty lines of JSON for a castle.
@@ -256,7 +256,7 @@ The dashboard binds to loopback. It can place blocks and spend tokens, so set
 ```sh
 npm install
 npm run build
-npm test          # 135 tests, no network, no Minecraft
+npm test          # 141 tests, no network, no Minecraft
 ```
 
 The test suite runs the whole pipeline against an in-memory Minecraft that

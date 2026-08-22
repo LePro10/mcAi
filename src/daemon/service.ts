@@ -339,7 +339,7 @@ export class BuildService extends EventEmitter implements AgentHost {
     this.emit('build_start', {
       name: compiled.name,
       commands: compiled.commands.length,
-      blocks: compiled.stats.voxels,
+      blocks: compiled.stats.solidVoxels,
       size: buildSize(compiled),
     });
 
