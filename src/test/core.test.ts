@@ -7,7 +7,7 @@ import {
   getPrefab, listPrefabs, matchPrefab, resolvePalette, styleForBiome,
   normalizeBlock, parseBlock, formatBlock, rotateBlockSpec, mirrorBlockSpec,
   withStates, rotateY, line3, hash3, noise01, weightedIndex, renderIsoSvg,
-  renderAsciiTop, visibleVoxels,
+  renderAsciiTop, visibleVoxels, blockColor, BLOCK_IDS,
 } from '../core/index.js';
 import type { Blueprint, FillBox } from '../core/types.js';
 
@@ -573,4 +573,49 @@ test('renderAsciiTop draws something for a real build', () => {
   const art = renderAsciiTop(b, 60);
   assert.ok(art.split('\n').length > 5);
   assert.ok(/[#%@*+=]/.test(art));
+});
+
+// ── Renderer colours ──────────────────────────────────────────────────────
+
+test('no solid block ever renders transparent', () => {
+  // `/air/` as a substring also matches "st-air-s", which made every roof
+  // invisible until it was anchored. Guard the whole block set.
+  const transparent: string[] = [];
+  for (const id of BLOCK_IDS) {
+    if (id === 'air' || id === 'cave_air' || id === 'void_air') continue;
+    if (id === 'barrier' || id === 'light' || id === 'structure_void') continue;
+    const c = blockColor(id);
+    if (c.length === 9 && c.endsWith('00')) transparent.push(id);
+  }
+  assert.deepEqual(transparent, [], `these render invisible: ${transparent.slice(0, 10).join(', ')}`);
+});
+
+test('stairs and slabs inherit their family colour, not a fallback', () => {
+  assert.equal(blockColor('dark_oak_stairs'), blockColor('dark_oak_planks'));
+  assert.equal(blockColor('sandstone_stairs'), blockColor('sandstone'));
+  assert.equal(blockColor('deepslate_brick_stairs'), blockColor('deepslate_bricks'));
+});
+
+test('block families get plausible colours', () => {
+  const isGrey = (c: string) => {
+    const n = parseInt(c.slice(1), 16);
+    const [r, g, b] = [(n >> 16) & 255, (n >> 8) & 255, n & 255];
+    return Math.max(r, g, b) - Math.min(r, g, b) < 40;
+  };
+  assert.ok(isGrey(blockColor('stone_bricks')), 'stone bricks must not read as terracotta');
+  assert.ok(isGrey(blockColor('cobblestone')));
+  assert.ok(isGrey(blockColor('mossy_cobblestone')), 'mossy stone is weathered stone, not foliage');
+  assert.ok(!isGrey(blockColor('oak_planks')), 'wood should be warm');
+  assert.ok(!isGrey(blockColor('oak_leaves')), 'leaves should be green');
+  assert.notEqual(blockColor('oak_planks'), blockColor('dark_oak_planks'), 'roofs need contrast against walls');
+});
+
+test('block states do not change a block colour', () => {
+  assert.equal(blockColor('oak_stairs[facing=north,half=bottom]'), blockColor('oak_stairs'));
+});
+
+test('an air-only build renders a placeholder rather than crashing', () => {
+  const b = compile({ parts: [{ op: 'clear', at: [0, 0, 0], size: [3, 3, 3] }] });
+  const svg = renderIsoSvg(b);
+  assert.match(svg, /empty build|<svg/);
 });

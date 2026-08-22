@@ -4,7 +4,9 @@
   "description": "Natural-language Minecraft builder. Say what you want, watch it get built — terrain-aware, style-aware, token-cheap.",
   "type": "module",
   "license": "MIT",
-  "engines": { "node": ">=20" },
+  "engines": {
+    "node": ">=20"
+  },
   "bin": {
     "mcai": "dist/cli/main.js",
     "mcai-daemon": "dist/daemon/main.js",
@@ -14,7 +16,14 @@
     ".": "./dist/core/index.js",
     "./core": "./dist/core/index.js"
   },
-  "files": ["dist", "web", "blueprints", "styles", "README.md", "LICENSE"],
+  "files": [
+    "dist",
+    "web",
+    "blueprints",
+    "styles",
+    "README.md",
+    "LICENSE"
+  ],
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "watch": "tsc -p tsconfig.json --watch",
@@ -27,15 +36,24 @@
     "prepublishOnly": "npm run build"
   },
   "keywords": [
-    "minecraft", "ai", "llm", "mcp", "model-context-protocol",
-    "mineflayer", "rcon", "builder", "voxel", "generative"
+    "minecraft",
+    "ai",
+    "llm",
+    "mcp",
+    "model-context-protocol",
+    "mineflayer",
+    "rcon",
+    "builder",
+    "voxel",
+    "generative"
   ],
   "dependencies": {
-    "mineflayer": "^4.37.1",
-    "@modelcontextprotocol/sdk": "^1.12.0"
+    "@modelcontextprotocol/sdk": "^1.12.0",
+    "mineflayer": "^4.37.1"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",
+    "playwright-core": "^1.62.1",
     "typescript": "^5.7.0"
   }
 }

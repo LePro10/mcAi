@@ -46,18 +46,20 @@ function pad(w: number, d: number, at: Vec3 = [0, 0, 0]): Part[] {
 function roundTower(at: Vec3, r: number, h: number, cap: 'cone' | 'battlement' = 'cone'): Part[] {
   const d = r * 2 + 1;
   const parts: Part[] = [
-    { op: 'cylinder', at, r, h, block: '@wall', hollow: true, thickness: 1 },
+    { op: 'cylinder', at, r, h, block: '@stone', hollow: true, thickness: 1 },
     { op: 'cylinder', at: [at[0], at[1], at[2]], r: r - 1, h: 1, block: '@floor' },
   ];
   if (cap === 'cone') {
     parts.push(
-      { op: 'cylinder', at: [at[0] - 1, at[1] + h, at[2] - 1], r: r + 1, h: 1, block: '@trim' },
-      { op: 'cone', at: [at[0] - 1, at[1] + h + 1, at[2] - 1], r: r + 1, h: r + 3, block: '@roof' },
+      { op: 'cylinder', at: [at[0] - 1, at[1] + h, at[2] - 1], r: r + 1, h: 1, block: '@accent' },
+      // A spire reads as a spire at roughly 2.2x its radius. At r+2 it is a
+      // mushroom cap, which is what the first pass produced.
+      { op: 'cone', at: [at[0] - 1, at[1] + h + 1, at[2] - 1], r: r + 1, h: Math.round((r + 1) * 2.2), block: '@roof' },
     );
   } else {
     parts.push(
-      { op: 'cylinder', at: [at[0] - 1, at[1] + h, at[2] - 1], r: r + 1, h: 1, block: '@trim' },
-      { op: 'battlements', at: [at[0] - 1, at[1] + h + 1, at[2] - 1], size: [d + 2, 2, d + 2], height: 2, width: 1, gap: 1, block: '@wall' },
+      { op: 'cylinder', at: [at[0] - 1, at[1] + h, at[2] - 1], r: r + 1, h: 1, block: '@accent' },
+      { op: 'battlements', at: [at[0] - 1, at[1] + h + 1, at[2] - 1], size: [d + 2, 2, d + 2], height: 2, width: 1, gap: 1, block: '@stone' },
     );
   }
   // Arrow slits, every other level.
@@ -168,15 +170,17 @@ export const PREFABS: Record<string, PrefabDef> = {
       const tr = 4, td = tr * 2 + 1;
       const mid = Math.floor(size / 2);
       const keepW = Math.max(9, Math.floor(size / 3) | 1);
-      const keepH = Math.max(8, Math.floor(wallH * 1.4));
+      // The keep has to clear the curtain wall and read as the tallest
+      // mass in the silhouette, or the castle looks like a walled yard.
+      const keepH = Math.max(12, Math.round(wallH * 1.9));
       const k0 = mid - Math.floor(keepW / 2);
 
       const parts: Part[] = [
         { op: 'foundation', at: [0, 0, 0], size: [size, size], depth: 5, block: '@base' },
         { op: 'box', at: [0, 0, 0], size: [size, 1, size], block: '@path' },
         // Curtain wall: a thick shell with a walkway and crenellations on top.
-        { op: 'walls', at: [0, 1, 0], size: [size, wallH, size], block: '@wall', thickness: 2 },
-        { op: 'battlements', at: [0, 1 + wallH, 0], size: [size, 2, size], height: 2, width: 2, gap: 2, block: '@wall' },
+        { op: 'walls', at: [0, 1, 0], size: [size, wallH, size], block: '@stone', thickness: 2 },
+        { op: 'battlements', at: [0, 1 + wallH, 0], size: [size, 2, size], height: 2, width: 2, gap: 2, block: '@stone' },
         { op: 'walls', at: [1, 1 + wallH, 1], size: [size - 2, 1, size - 2], block: '@floor', thickness: 1 },
       ];
 
@@ -188,9 +192,9 @@ export const PREFABS: Record<string, PrefabDef> = {
 
       // Gatehouse on the south face.
       parts.push(
-        { op: 'box', at: [mid - 5, 1, size - 4], size: [11, wallH + 4, 5], block: '@wall' },
+        { op: 'box', at: [mid - 5, 1, size - 4], size: [11, wallH + 4, 5], block: '@stone' },
         { op: 'arch', at: [mid - 2, 1, size - 4], span: 5, h: 7, depth: 5, axis: 'x', cut: true },
-        { op: 'battlements', at: [mid - 5, 1 + wallH + 4, size - 4], size: [11, 2, 5], height: 2, width: 1, gap: 1, block: '@wall' },
+        { op: 'battlements', at: [mid - 5, 1 + wallH + 4, size - 4], size: [11, 2, 5], height: 2, width: 1, gap: 1, block: '@stone' },
         { op: 'box', at: [mid - 1, 1, size - 1], size: [3, 5, 1], block: 'air' },
         { op: 'set', at: [mid - 3, 5, size - 5], block: '@light' },
         { op: 'set', at: [mid + 3, 5, size - 5], block: '@light' },
@@ -199,7 +203,7 @@ export const PREFABS: Record<string, PrefabDef> = {
       // Central keep with a hip roof and its own small towers.
       parts.push(
         { op: 'box', at: [k0, 0, k0], size: [keepW, 1, keepW], block: '@floor' },
-        { op: 'walls', at: [k0, 1, k0], size: [keepW, keepH, keepW], block: '@wall', thickness: 1 },
+        { op: 'walls', at: [k0, 1, k0], size: [keepW, keepH, keepW], block: '@stone', thickness: 2 },
         { op: 'frame', at: [k0, 1, k0], size: [keepW, keepH, keepW], thickness: 1, block: '@pillar', mode: 'keep' },
         { op: 'windows', at: [k0, 1, k0], size: [keepW, keepH, keepW], win: [1, 2], spacing: 3, glass: '@glass' },
         { op: 'door', at: [mid, 1, k0 + keepW - 1], facing: 'south', door: '@door' },
@@ -228,11 +232,14 @@ export const PREFABS: Record<string, PrefabDef> = {
         parts: [
           { op: 'foundation', at: [0, 0, 0], size: [w, w], depth: 5, block: '@base' },
           { op: 'box', at: [0, 0, 0], size: [w, 1, w], block: '@floor' },
-          { op: 'walls', at: [0, 1, 0], size: [w, h, w], block: '@wall', thickness: 2 },
+          { op: 'walls', at: [0, 1, 0], size: [w, h, w], block: '@stone', thickness: 2 },
           { op: 'windows', at: [0, 1, 0], size: [w, h, w], win: [1, 3], spacing: 4, glass: '@glass' },
           { op: 'door', at: [Math.floor(w / 2), 1, w - 1], facing: 'south', width: 2, door: '@door' },
-          { op: 'battlements', at: [0, 1 + h, 0], size: [w, 2, w], height: 2, width: 2, gap: 2, block: '@wall' },
-          { op: 'symmetry', axis: 'xz', about: Math.floor(w / 2), of: [{ op: 'box', at: [-1, 1, -1], size: [4, h + 5, 4], block: '@pillar' }] },
+          { op: 'battlements', at: [0, 1 + h, 0], size: [w, 2, w], height: 2, width: 2, gap: 2, block: '@stone' },
+          { op: 'symmetry', axis: 'xz', about: Math.floor(w / 2), of: [
+            { op: 'box', at: [-1, 1, -1], size: [4, h + 5, 4], block: '@stone' },
+            { op: 'battlements', at: [-1, h + 6, -1], size: [4, 2, 4], height: 2, width: 1, gap: 1, block: '@stone' },
+          ] },
           { op: 'spiral', at: [2, 1, 2], r: 2, h: h - 1, turn: 10, stairs: '@roof_stairs' },
           { op: 'repeat', count: Math.max(1, Math.floor(h / 5)), step: [0, 5, 0], of: [{ op: 'set', at: [Math.floor(w / 2), 4, Math.floor(w / 2)], block: '@light' }] },
         ],
@@ -259,7 +266,7 @@ export const PREFABS: Record<string, PrefabDef> = {
         const off = r - rr;
         parts.push({
           op: 'cylinder', at: [off, 1 + i * 5, off], r: rr, h: 5,
-          block: i % 2 === 0 ? '@wall' : '@accent', hollow: true, thickness: 1,
+          block: i % 2 === 0 ? '@stone' : '@accent', hollow: true, thickness: 1,
         });
       }
       const topY = 1 + bands * 5;
@@ -267,7 +274,7 @@ export const PREFABS: Record<string, PrefabDef> = {
         { op: 'cylinder', at: [0, topY, 0], r: r - 1, h: 1, block: '@trim' },
         { op: 'cylinder', at: [1, topY + 1, 1], r: r - 2, h: 4, block: '@glass', hollow: true, thickness: 1 },
         { op: 'box', at: [r - 1, topY + 2, r - 1], size: [3, 1, 3], block: 'sea_lantern' },
-        { op: 'cone', at: [0, topY + 5, 0], r: r - 1, h: r, block: '@roof' },
+        { op: 'cone', at: [0, topY + 5, 0], r: r - 1, h: Math.round(r * 2), block: '@roof' },
         { op: 'spiral', at: [1, 1, 1], r: r - 2, h: topY - 1, turn: 12, stairs: '@roof_stairs' },
         { op: 'door', at: [r, 1, 0], facing: 'north', door: '@door' },
       );
@@ -291,14 +298,14 @@ export const PREFABS: Record<string, PrefabDef> = {
         parts.push({ op: 'set', at: [i, y + 1, 0], block: '@fence' });
         parts.push({ op: 'set', at: [i, y + 1, w - 1], block: '@fence' });
         for (let yy = y - 1; yy > y - 3; yy--) {
-          parts.push({ op: 'box', at: [i, yy, 0], size: [1, 1, w], block: '@wall', mode: 'keep' });
+          parts.push({ op: 'box', at: [i, yy, 0], size: [1, 1, w], block: '@stone', mode: 'keep' });
         }
       }
       for (let s = 0; s < piers; s++) {
         const x = Math.round(((s + 0.5) / piers) * (len - 1));
         const t = (x / (len - 1)) * 2 - 1;
         const y = Math.round(rise * (1 - t * t));
-        parts.push({ op: 'box', at: [x - 1, y - 12, 0], size: [3, 12, w], block: '@wall' });
+        parts.push({ op: 'box', at: [x - 1, y - 12, 0], size: [3, 12, w], block: '@stone' });
         parts.push({ op: 'set', at: [x, y + 2, 0], block: '@light' });
         parts.push({ op: 'set', at: [x, y + 2, w - 1], block: '@light' });
       }
@@ -319,9 +326,9 @@ export const PREFABS: Record<string, PrefabDef> = {
         parts: [
           { op: 'foundation', at: [0, 0, 0], size: [d, d], depth: 4, block: '@base' },
           { op: 'cylinder', at: [0, 0, 0], r, h: 1, block: '@floor' },
-          { op: 'cylinder', at: [0, 1, 0], r, h, block: '@wall', hollow: true, thickness: 1 },
+          { op: 'cylinder', at: [0, 1, 0], r, h, block: '@stone', hollow: true, thickness: 1 },
           { op: 'cylinder', at: [-1, 1 + h, -1], r: r + 1, h: 1, block: '@trim' },
-          { op: 'cone', at: [-1, 2 + h, -1], r: r + 1, h: r + 2, block: '@roof' },
+          { op: 'cone', at: [-1, 2 + h, -1], r: r + 1, h: Math.round((r + 1) * 2), block: '@roof' },
           { op: 'door', at: [r, 1, d - 1], facing: 'south', door: '@door' },
           { op: 'windows', at: [0, 1, 0], size: [d, h, d], win: [1, 2], spacing: 4, glass: '@glass' },
           // Sails: two crossed beams on the south face.
@@ -382,9 +389,9 @@ export const PREFABS: Record<string, PrefabDef> = {
         name: 'wall',
         parts: [
           { op: 'foundation', at: [0, 0, 0], size: [len, t], depth: 4, block: '@base' },
-          { op: 'box', at: [0, 0, 0], size: [len, h, t], block: '@wall' },
+          { op: 'box', at: [0, 0, 0], size: [len, h, t], block: '@stone' },
           { op: 'box', at: [0, h, 0], size: [len, 1, t], block: '@path' },
-          { op: 'battlements', at: [0, h + 1, 0], size: [len, 2, t], height: 2, width: 2, gap: 2, block: '@wall' },
+          { op: 'battlements', at: [0, h + 1, 0], size: [len, 2, t], height: 2, width: 2, gap: 2, block: '@stone' },
           { op: 'repeat', count: Math.max(1, Math.floor(len / 8)), step: [8, 0, 0], of: [{ op: 'set', at: [2, h + 1, 1], block: '@light' }] },
         ],
       };
@@ -402,7 +409,7 @@ export const PREFABS: Record<string, PrefabDef> = {
         name: 'well',
         parts: [
           { op: 'cylinder', at: [0, 0, 0], r: r + 1, h: 1, block: '@path' },
-          { op: 'cylinder', at: [0, 1, 0], r, h: 2, block: '@wall', hollow: true, thickness: 1 },
+          { op: 'cylinder', at: [0, 1, 0], r, h: 2, block: '@stone', hollow: true, thickness: 1 },
           { op: 'box', at: [1, 0, 1], size: [d - 2, 1, d - 2], block: 'water' },
           { op: 'symmetry', axis: 'xz', about: r, of: [{ op: 'box', at: [0, 3, 0], size: [1, 3, 1], block: '@trim' }] },
           { op: 'roof', at: [0, 6, 0], size: [d, 1, d], kind: 'hip', pitch: 1, overhang: 1, block: '@roof', stairs: '@roof_stairs' },
@@ -427,7 +434,7 @@ export const PREFABS: Record<string, PrefabDef> = {
           { op: 'cylinder', at: [0, 1, 0], r, h: 1, block: '@fence', hollow: true, thickness: 1 },
           { op: 'symmetry', axis: 'xz', about: r, of: [{ op: 'box', at: [0, 1, 0], size: [1, 4, 1], block: '@pillar' }] },
           { op: 'cylinder', at: [0, 5, 0], r, h: 1, block: '@trim' },
-          { op: 'cone', at: [-1, 6, -1], r: r + 1, h: r + 1, block: '@roof' },
+          { op: 'cone', at: [-1, 6, -1], r: r + 1, h: Math.round((r + 1) * 1.8), block: '@roof' },
           { op: 'set', at: [r, 4, r], block: '@light' },
         ],
       };
@@ -468,7 +475,7 @@ export const PREFABS: Record<string, PrefabDef> = {
         name: 'pyramid',
         parts: [
           { op: 'foundation', at: [0, 0, 0], size: [base, base], depth: 4, block: '@base' },
-          { op: 'pyramid', at: [0, 0, 0], size: [base, Math.ceil(base / 2), base], block: '@wall', step: 1 },
+          { op: 'pyramid', at: [0, 0, 0], size: [base, Math.ceil(base / 2), base], block: '@stone', step: 1 },
           { op: 'clear', at: [mid - Math.floor(chamber / 2), 1, mid - Math.floor(chamber / 2)], size: [chamber, 4, chamber] },
           { op: 'box', at: [mid - Math.floor(chamber / 2), 0, mid - Math.floor(chamber / 2)], size: [chamber, 1, chamber], block: '@floor' },
           { op: 'clear', at: [mid - 1, 1, mid], size: [3, 3, base - mid] },
@@ -491,7 +498,7 @@ export const PREFABS: Record<string, PrefabDef> = {
         name: 'watchtower',
         parts: [
           { op: 'foundation', at: [0, 0, 0], size: [w, w], depth: 4, block: '@base' },
-          { op: 'symmetry', axis: 'xz', about: Math.floor(w / 2), of: [{ op: 'box', at: [0, 0, 0], size: [1, h, 1], block: '@pillar' }] },
+          { op: 'symmetry', axis: 'xz', about: Math.floor(w / 2), of: [{ op: 'box', at: [0, 0, 0], size: [1, h, 1], block: '@stone' }] },
           { op: 'box', at: [-1, h, -1], size: [w + 2, 1, w + 2], block: '@floor' },
           { op: 'walls', at: [-1, h + 1, -1], size: [w + 2, 2, w + 2], block: '@fence', thickness: 1 },
           { op: 'symmetry', axis: 'xz', about: Math.floor(w / 2), of: [{ op: 'box', at: [0, h + 1, 0], size: [1, 4, 1], block: '@trim' }] },

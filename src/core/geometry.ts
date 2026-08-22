@@ -45,7 +45,18 @@ export function oppositeFacing(f: Cardinal): Cardinal {
   return rotateFacing(f, 180);
 }
 
-/** Facing from a yaw in degrees, matching Minecraft's player rotation. */
+/**
+ * Facing from a look direction. Prefer this over a yaw wherever a forward
+ * vector is available: yaw conventions differ between the wire protocol
+ * (0 = south) and mineflayer (0 = north), and picking the wrong one puts every
+ * building behind the player.
+ */
+export function facingFromVector(dx: number, dz: number): Cardinal {
+  if (Math.abs(dx) >= Math.abs(dz)) return dx >= 0 ? 'east' : 'west';
+  return dz >= 0 ? 'south' : 'north';
+}
+
+/** Facing from a yaw in degrees, in the wire protocol's convention. */
 export function facingFromYaw(yaw: number): Cardinal {
   const y = ((yaw % 360) + 360) % 360;
   if (y >= 315 || y < 45) return 'south';

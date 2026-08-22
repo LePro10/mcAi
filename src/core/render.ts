@@ -12,47 +12,90 @@ import { parseBlock } from './blocks.js';
 
 // ── Colour ────────────────────────────────────────────────────────────────
 
-/** Approximate top-face colours, matched by substring, most specific first. */
+/**
+ * Approximate top-face colours, matched against the block id in order.
+ *
+ * Ordering is the whole game here, and the traps are real: a naive `/air/`
+ * rule also matches "st-air-s", which rendered every roof invisible; `/brick/`
+ * before the stone rule turned stone bricks terracotta-red; and `/moss/`
+ * before it painted mossy cobblestone leaf-green. Anchors and word boundaries
+ * where the substring is a common fragment, specific families before generic
+ * ones, and a test that no solid block ever renders transparent.
+ */
 const COLOR_RULES: Array<[RegExp, string]> = [
-  [/air/, '#00000000'],
-  [/water/, '#3b6ede'],
+  // Air must match the whole id, never a fragment of one.
+  [/^(air|cave_air|void_air|structure_void|barrier|light)$/, '#00000000'],
+
+  [/^water$/, '#3b6ede'],
   [/lava|magma/, '#e2591b'],
-  [/glass|ice$|packed_ice/, '#a8d8e8'],
   [/blue_ice/, '#74a8e0'],
-  [/sea_lantern|glowstone|shroomlight|lantern|torch|redstone_lamp|end_rod|beacon/, '#ffd98a'],
-  [/gold/, '#f2c144'],
-  [/copper|weathered|oxidized/, '#7fb8a0'],
-  [/exposed_c/, '#b08064'],
-  [/iron/, '#d8d8d8'],
+  [/glass|^ice$|packed_ice/, '#a8d8e8'],
+  [/sea_lantern|glowstone|shroomlight|lantern|torch|redstone_lamp|end_rod|beacon|campfire|candle/, '#ffd98a'],
+
+  // Metals and gems before the generic families.
+  [/gold|gilded/, '#f2c144'],
+  [/oxidized_c|weathered_c/, '#5ea88c'],
+  [/exposed_c|^copper|cut_copper|copper_/, '#c07a52'],
+  [/iron|anvil/, '#d8d8d8'],
   [/diamond/, '#5ce0d8'],
   [/emerald/, '#3fd07a'],
   [/lapis/, '#2b52a8'],
   [/amethyst|purpur|purple/, '#9a6cc4'],
-  [/quartz|calcite|bone_block|white_concrete|white_terracotta|snow|smooth_quartz/, '#ece8dd'],
-  [/deepslate|blackstone|obsidian|basalt/, '#39383f'],
-  [/black_/, '#1d1d21'],
-  [/nether_brick/, '#4a2327'],
+
+  // Dark stone families before anything that could claim them.
+  [/deepslate|blackstone|obsidian|basalt|^sculk/, '#3a3942'],
+  [/^black_|^coal_block/, '#1d1d21'],
+  [/nether_brick|nether_wart_block/, '#472026'],
   [/netherrack|crimson/, '#8b3a3a'],
   [/warped/, '#2c8577'],
   [/prismarine/, '#5aa396'],
-  [/sandstone|sand$/, '#dcd0a0'],
-  [/red_sand/, '#b9603a'],
-  [/terracotta/, '#9a5b3f'],
-  [/brick/, '#96594a'],
-  [/moss|leaves|vine|lichen|grass_block|azalea/, '#5d8a3c'],
-  [/podzol|dirt|mud|coarse/, '#7a5636'],
-  [/gravel|andesite|cobblestone|stone_brick|stone$|smooth_stone|tuff/, '#8d8d8d'],
-  [/mossy/, '#77855e'],
-  [/granite/, '#a5715c'],
+
+  // Pale stone.
+  [/quartz|calcite|bone_block|^white_|smooth_quartz|^snow|end_stone/, '#e8e4d8'],
   [/diorite/, '#d5d3d0'],
-  [/dark_oak|spruce/, '#54371f'],
-  [/birch|bamboo/, '#d9c89a'],
-  [/oak/, '#b08a52'],
+
+  // Mossy variants read as weathered stone, not as foliage.
+  [/^mossy_|moss_block|moss_carpet/, '#7d8770'],
+
+  // Sand and clay.
+  [/red_sand/, '#b9603a'],
+  [/sandstone|^sand$|suspicious_sand/, '#dcd0a0'],
+  [/terracotta/, '#9a5b3f'],
+
+  // Grey stone. Ahead of `brick` so stone bricks stay stone.
+  [/stone_brick|deepslate_tile|tuff|^stone$|smooth_stone|cobblestone|andesite|gravel|^clay$|dripstone/, '#8d8d8d'],
+  [/granite/, '#a5715c'],
+  [/^bricks$|^brick_|mud_brick|resin_brick/, '#9c5748'],
+
+  // Plants and ground cover.
+  [/leaves|^vine$|lichen|azalea|_petals|kelp|lily_pad|bamboo$|sugar_cane|cactus/, '#5d8a3c'],
+  [/grass_block|^short_grass|^tall_grass|^fern|large_fern|mycelium/, '#6a9b40'],
+  [/poppy|tulip|rose|wither/, '#c04a3a'],
+  [/dandelion|sunflower|torchflower/, '#e0c53a'],
+  [/allium|lilac|orchid|cornflower|peony|bluet|daisy|lily_of/, '#b58ad0'],
+  [/podzol|^dirt|^coarse|rooted_dirt|^mud|farmland|dirt_path/, '#7a5636'],
+  [/hay_block|wheat|^melon|pumpkin/, '#d4b03c'],
+
+  // Woods, dark to light, before the catch-all wood rule.
+  [/dark_oak|^spruce|stripped_spruce|stripped_dark_oak/, '#4a3018'],
+  [/mangrove/, '#7a3b32'],
   [/jungle|acacia/, '#9a6338'],
   [/cherry/, '#d4849a'],
-  [/hay|wheat/, '#d4b03c'],
-  [/wool|carpet|concrete|wood|planks|log/, '#a9793f'],
-  [/fence|wall$|stairs|slab/, '#8d8d8d'],
+  [/birch|^bamboo_/, '#d3bd8a'],
+  [/oak/, '#af8552'],
+
+  // Furniture and fittings, before the generic catch-alls.
+  [/_bed$/, '#b03a3a'],
+  [/crafting_table|barrel|lectern|bookshelf|loom|composter/, '#a9793f'],
+  [/furnace|smoker|blast_furnace|stonecutter|grindstone|cauldron/, '#7d7d7d'],
+  [/chest|beehive/, '#c08a44'],
+
+  // Coloured building blocks.
+  [/concrete|_wool|_carpet|_stained/, '#a0a4ab'],
+
+  // Catch-alls.
+  [/planks|_log$|_wood$|stripped_|_fence|_door|_trapdoor|scaffolding|ladder/, '#a9793f'],
+  [/_wall$|_slab$|_stairs$|chain|_bars/, '#8d8d8d'],
 ];
 
 const colorCache = new Map<string, string>();

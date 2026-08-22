@@ -39,6 +39,7 @@ export const PALETTES: Record<string, Palette> = {
     description: 'Stone footings, timber walls, steep shingled roofs. The default for temperate biomes.',
     slots: {
       base: mix(['cobblestone', 'mossy_cobblestone', 'stone_bricks'], [0.6, 0.2, 0.2]),
+      stone: mix(['stone_bricks', 'cracked_stone_bricks', 'mossy_stone_bricks'], [0.7, 0.18, 0.12]),
       wall: mix(['oak_planks', 'stripped_oak_log', 'spruce_planks'], [0.72, 0.2, 0.08]),
       accent: 'stripped_dark_oak_log',
       trim: 'dark_oak_log',
@@ -63,6 +64,7 @@ export const PALETTES: Record<string, Palette> = {
     description: 'Small, warm, storybook. Whitewashed walls, dark timber, flowers everywhere.',
     slots: {
       base: 'cobblestone',
+      stone: mix(['cobblestone', 'stone_bricks'], [0.7, 0.3]),
       wall: mix(['white_terracotta', 'bone_block', 'calcite'], [0.75, 0.15, 0.1]),
       accent: 'stripped_dark_oak_log',
       trim: 'dark_oak_log',
@@ -87,6 +89,7 @@ export const PALETTES: Record<string, Palette> = {
     description: 'Flat roofs, glass curtain walls, concrete slabs, no clutter.',
     slots: {
       base: 'smooth_stone',
+      stone: 'smooth_stone',
       wall: mix(['white_concrete', 'light_gray_concrete'], [0.8, 0.2]),
       accent: 'polished_blackstone',
       trim: 'black_concrete',
@@ -110,6 +113,7 @@ export const PALETTES: Record<string, Palette> = {
     description: 'Impossible geometry, purple stone, glowing crystals, tall spires.',
     slots: {
       base: 'deepslate_bricks',
+      stone: mix(['deepslate_bricks', 'polished_deepslate'], [0.7, 0.3]),
       wall: mix(['purpur_block', 'quartz_bricks', 'purpur_pillar'], [0.6, 0.25, 0.15]),
       accent: 'amethyst_block',
       trim: 'purpur_pillar',
@@ -133,6 +137,7 @@ export const PALETTES: Record<string, Palette> = {
     description: 'Pagoda roofs, dark timber frames, paper walls, cherry blossom.',
     slots: {
       base: 'stone_bricks',
+      stone: 'stone_bricks',
       wall: mix(['white_concrete', 'bone_block'], [0.85, 0.15]),
       accent: 'dark_oak_log',
       trim: 'stripped_dark_oak_log',
@@ -157,6 +162,7 @@ export const PALETTES: Record<string, Palette> = {
     description: 'Longhouses, turf roofs, heavy dark timber, carved posts.',
     slots: {
       base: mix(['cobblestone', 'mossy_cobblestone'], [0.6, 0.4]),
+      stone: mix(['cobblestone', 'mossy_cobblestone', 'stone_bricks'], [0.45, 0.3, 0.25]),
       wall: mix(['spruce_planks', 'stripped_spruce_log', 'dark_oak_planks'], [0.6, 0.25, 0.15]),
       accent: 'stripped_spruce_log',
       trim: 'spruce_log',
@@ -181,6 +187,7 @@ export const PALETTES: Record<string, Palette> = {
     description: 'Sandstone mass, flat roofs, deep arches, small windows against the sun.',
     slots: {
       base: 'smooth_sandstone',
+      stone: mix(['sandstone', 'cut_sandstone', 'smooth_sandstone'], [0.6, 0.25, 0.15]),
       wall: mix(['sandstone', 'cut_sandstone', 'smooth_sandstone'], [0.6, 0.25, 0.15]),
       accent: 'chiseled_sandstone',
       trim: 'cut_sandstone',
@@ -205,6 +212,7 @@ export const PALETTES: Record<string, Palette> = {
     description: 'Open stilted structures, bamboo, palm-leaf roofs, no walls where possible.',
     slots: {
       base: 'jungle_log',
+      stone: mix(['stone_bricks', 'mossy_stone_bricks'], [0.6, 0.4]),
       wall: mix(['jungle_planks', 'bamboo_planks'], [0.6, 0.4]),
       accent: 'bamboo_mosaic',
       trim: 'jungle_log',
@@ -229,6 +237,7 @@ export const PALETTES: Record<string, Palette> = {
     description: 'Cathedral verticality: dark stone, pointed arches, stained glass, flying buttresses.',
     slots: {
       base: 'polished_blackstone_bricks',
+      stone: mix(['deepslate_bricks', 'cracked_deepslate_bricks', 'polished_blackstone_bricks'], [0.6, 0.2, 0.2]),
       wall: mix(['deepslate_bricks', 'cracked_deepslate_bricks', 'deepslate_tiles'], [0.65, 0.2, 0.15]),
       accent: 'polished_blackstone',
       trim: 'blackstone',
@@ -252,6 +261,7 @@ export const PALETTES: Record<string, Palette> = {
     description: 'Pale organic curves grown into the trees, gold trim, warm glow.',
     slots: {
       base: 'calcite',
+      stone: mix(['calcite', 'smooth_quartz'], [0.7, 0.3]),
       wall: mix(['bone_block', 'calcite', 'smooth_quartz'], [0.5, 0.3, 0.2]),
       accent: 'gold_block',
       trim: 'stripped_birch_log',
@@ -275,6 +285,7 @@ export const PALETTES: Record<string, Palette> = {
     description: 'Carved into rock. Massive blocks, iron and gold inlay, lava light.',
     slots: {
       base: 'deepslate_bricks',
+      stone: mix(['stone_bricks', 'chiseled_stone_bricks', 'cracked_stone_bricks'], [0.68, 0.17, 0.15]),
       wall: mix(['stone_bricks', 'chiseled_stone_bricks', 'cracked_stone_bricks'], [0.6, 0.25, 0.15]),
       accent: 'gold_block',
       trim: 'polished_deepslate',
@@ -299,6 +310,7 @@ export const PALETTES: Record<string, Palette> = {
     description: 'Copper, brick and brass. Pipes, gears, chimneys, riveted plate.',
     slots: {
       base: 'polished_blackstone_bricks',
+      stone: mix(['bricks', 'polished_blackstone_bricks'], [0.75, 0.25]),
       wall: mix(['bricks', 'copper_block', 'exposed_copper'], [0.6, 0.25, 0.15]),
       accent: 'oxidized_copper',
       trim: 'stripped_dark_oak_log',
@@ -322,6 +334,7 @@ export const PALETTES: Record<string, Palette> = {
     description: 'Sealed white shells, glowing seams, no visible joins.',
     slots: {
       base: 'polished_deepslate',
+      stone: 'smooth_quartz',
       wall: mix(['white_concrete', 'smooth_quartz'], [0.7, 0.3]),
       accent: 'light_blue_concrete',
       trim: 'gray_concrete',
@@ -345,6 +358,7 @@ export const PALETTES: Record<string, Palette> = {
     description: 'Half-collapsed, overgrown, weathered. Best with the scatter op.',
     slots: {
       base: mix(['cobblestone', 'mossy_cobblestone', 'gravel'], [0.4, 0.4, 0.2]),
+      stone: mix(['mossy_stone_bricks', 'cracked_stone_bricks', 'stone_bricks'], [0.4, 0.35, 0.25]),
       wall: mix(['mossy_stone_bricks', 'cracked_stone_bricks', 'stone_bricks', 'air'], [0.35, 0.3, 0.25, 0.1]),
       accent: 'mossy_cobblestone',
       trim: 'stone_brick_wall',
@@ -368,6 +382,7 @@ export const PALETTES: Record<string, Palette> = {
     description: 'Hostile fortress architecture: dark brick, blaze light, no wood.',
     slots: {
       base: 'blackstone',
+      stone: mix(['nether_bricks', 'cracked_nether_bricks'], [0.8, 0.2]),
       wall: mix(['nether_bricks', 'cracked_nether_bricks', 'chiseled_nether_bricks'], [0.7, 0.2, 0.1]),
       accent: 'red_nether_bricks',
       trim: 'polished_blackstone',
@@ -392,6 +407,7 @@ export const PALETTES: Record<string, Palette> = {
     description: 'Frozen palace: packed ice, snow, blue glass, cold light.',
     slots: {
       base: 'packed_ice',
+      stone: mix(['packed_ice', 'blue_ice'], [0.7, 0.3]),
       wall: mix(['packed_ice', 'blue_ice', 'snow_block'], [0.55, 0.25, 0.2]),
       accent: 'blue_ice',
       trim: 'calcite',
