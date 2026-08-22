@@ -4,15 +4,16 @@ server/
 # Node.js dependencies and build output
 node_modules/
 **/node_modules/
-mcp-minecraft/dist/
+dist/
 *.tsbuildinfo
 
-# Local bot/runtime files
+# Local runtime state
 *.log
+data/
 build_log.txt
 build_queue.json
-MEMORY.md
-IMPLEMENTATION_PLAN.md
+structures/
+.mcai/
 
 # Environment and local editor files
 .env
@@ -22,4 +23,3 @@ IMPLEMENTATION_PLAN.md
 Thumbs.db
 .idea/
 .vscode/
-
