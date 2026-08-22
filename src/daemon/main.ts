@@ -8,6 +8,8 @@
  */
 
 import process from 'node:process';
+import path from 'node:path';
+import { pathToFileURL } from 'node:url';
 
 import { VERSION, listPrefabs } from '../core/index.js';
 import { McBot, type ChatCommand } from './bot.js';
@@ -208,7 +210,13 @@ export async function main(): Promise<void> {
   process.on('SIGTERM', shutdown);
 }
 
-const isEntry = process.argv[1] && import.meta.url.endsWith(process.argv[1].replace(/^.*[/\\]/, ''));
-if (isEntry) {
+// Compare resolved paths, not basenames: `mcai serve` imports this module
+// while argv[1] is the CLI's own main.js, and a basename match would run the
+// daemon twice.
+const invokedDirectly = process.argv[1]
+  ? import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href
+  : false;
+
+if (invokedDirectly) {
   main().catch((err) => { console.error(err); process.exit(1); });
 }

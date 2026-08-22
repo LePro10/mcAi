@@ -143,7 +143,9 @@ export class BuildService extends EventEmitter implements AgentHost {
       customBlueprints: Object.keys(this.customBlueprints),
       llm: this.opts.llm ? { provider: this.opts.llm.provider, model: this.opts.llm.model } : null,
       prefabs: listPrefabs().map((p) => p.name),
-      styles: [...Object.keys(PALETTES), ...Object.keys(this.customStyles)],
+      // Deduplicate: styles/ ships an editable copy of every built-in, so a
+      // naive concatenation lists each name twice.
+      styles: [...new Set([...Object.keys(PALETTES), ...Object.keys(this.customStyles)])].sort(),
     };
   }
 
@@ -430,7 +432,7 @@ export class BuildService extends EventEmitter implements AgentHost {
 export function sizeHint(prompt: string): Record<string, unknown> {
   const p = prompt.toLowerCase();
   const big = /\b(huge|giant|massive|enormous|riesig|riesige|gigantisch|gross|groß|large|epic)\b/.test(p);
-  const small = /\b(small|tiny, |tiny|little|klein|kleine|winzig)\b/.test(p);
+  const small = /\b(small|tiny|little|modest|klein|kleine|winzig)\b/.test(p);
   if (big) return { size: 61, w: 17, d: 21, h: 8, r: 7, len: 61, base: 45, wallH: 14, towerH: 26, floors: 3 };
   if (small) return { size: 21, w: 7, d: 9, h: 4, r: 3, len: 15, base: 15, wallH: 6, towerH: 10, floors: 1 };
   return {};
