@@ -9,6 +9,8 @@
  * nothing but an env var changed.
  */
 
+import { resolveConfig } from './config.js';
+
 export type Provider = 'anthropic' | 'openai';
 
 export interface ToolDef {
@@ -49,19 +51,47 @@ export function addUsage(a: Usage, b: Usage): Usage {
   };
 }
 
-/** USD per million tokens. Unknown models fall back to a mid-range estimate. */
+/**
+ * USD per million tokens, matched against the model name by substring.
+ *
+ * These move; they are here to give an order-of-magnitude figure in the
+ * dashboard, not to bill anyone. An unknown model falls back to a mid-range
+ * estimate rather than silently reporting zero, which would read as free.
+ */
 const PRICES: Record<string, { in: number; out: number; cacheRead?: number; cacheWrite?: number }> = {
-  'claude-opus-5': { in: 5, out: 25, cacheRead: 0.5, cacheWrite: 6.25 },
-  'claude-sonnet-5': { in: 3, out: 15, cacheRead: 0.3, cacheWrite: 3.75 },
-  'claude-haiku-4-5': { in: 1, out: 5, cacheRead: 0.1, cacheWrite: 1.25 },
+  'claude-opus': { in: 15, out: 75, cacheRead: 1.5, cacheWrite: 18.75 },
+  'claude-sonnet': { in: 3, out: 15, cacheRead: 0.3, cacheWrite: 3.75 },
+  'claude-haiku': { in: 1, out: 5, cacheRead: 0.1, cacheWrite: 1.25 },
+  'gpt-4.1-mini': { in: 0.4, out: 1.6, cacheRead: 0.1 },
+  'gpt-4.1': { in: 2, out: 8, cacheRead: 0.5 },
   'gpt-4o-mini': { in: 0.15, out: 0.6 },
   'gpt-4o': { in: 2.5, out: 10 },
-  'deepseek-chat': { in: 0.27, out: 1.1 },
+  'o4-mini': { in: 1.1, out: 4.4 },
+  'gemini-2.5-pro': { in: 1.25, out: 10 },
+  'gemini-2.5-flash': { in: 0.3, out: 2.5 },
+  'gemini-2.0-flash': { in: 0.1, out: 0.4 },
   'deepseek-reasoner': { in: 0.55, out: 2.19 },
+  'deepseek': { in: 0.27, out: 1.1 },
+  'grok-4-fast': { in: 0.2, out: 0.5 },
+  'grok': { in: 3, out: 15 },
+  'mistral-large': { in: 2, out: 6 },
+  'mistral-small': { in: 0.2, out: 0.6 },
+  'codestral': { in: 0.3, out: 0.9 },
+  'llama-3.3': { in: 0.6, out: 0.8 },
+  'qwen': { in: 0.4, out: 1.6 },
+  'kimi': { in: 1, out: 3 },
 };
 
+/** Local providers cost nothing; do not invent a figure for them. */
+const FREE_HINTS = [':', 'local-model'];
+
 export function estimateCost(model: string, usage: Usage): number {
-  const key = Object.keys(PRICES).find((k) => model.includes(k));
+  // An Ollama tag like "qwen2.5-coder:14b" runs on your own hardware.
+  if (FREE_HINTS.some((h) => model.includes(h))) return 0;
+  // Longest match wins, so "claude-haiku" is not shadowed by a shorter key.
+  const key = Object.keys(PRICES)
+    .filter((k) => model.includes(k))
+    .sort((a, b) => b.length - a.length)[0];
   const p = key ? PRICES[key] : { in: 1, out: 5 };
   return (
     (usage.inputTokens / 1e6) * p.in +
@@ -96,55 +126,14 @@ export class LlmError extends Error {
 }
 
 /**
- * Resolve a configuration from the environment.
+ * Resolve a configuration.
  *
- * Checks the vendor-specific keys people already have exported before asking
- * for anything mcAI-specific, so a working setup usually needs no config at
- * all. Returns null when nothing is available — the caller then falls back to
- * the prefab-only path, which still builds real things without any model.
+ * Kept as a thin re-export so callers do not need to know whether the answer
+ * came from the environment or the saved file — see `config.ts` for the
+ * precedence rules.
  */
 export function configFromEnv(env: NodeJS.ProcessEnv = process.env): LlmConfig | null {
-  const explicitProvider = env.MCAI_PROVIDER?.toLowerCase() as Provider | undefined;
-  const model = env.MCAI_MODEL;
-  const key = env.MCAI_API_KEY;
-  const base = env.MCAI_BASE_URL;
-
-  if (explicitProvider && (key || base)) {
-    return {
-      provider: explicitProvider === 'anthropic' ? 'anthropic' : 'openai',
-      model: model ?? (explicitProvider === 'anthropic' ? 'claude-sonnet-5' : 'gpt-4o-mini'),
-      apiKey: key ?? 'not-needed',
-      baseUrl: base ?? (explicitProvider === 'anthropic' ? 'https://api.anthropic.com' : 'https://api.openai.com'),
-    };
-  }
-
-  if (env.ANTHROPIC_API_KEY) {
-    return {
-      provider: 'anthropic',
-      model: model ?? 'claude-sonnet-5',
-      apiKey: env.ANTHROPIC_API_KEY,
-      baseUrl: base ?? 'https://api.anthropic.com',
-    };
-  }
-  if (env.OPENAI_API_KEY) {
-    return { provider: 'openai', model: model ?? 'gpt-4o-mini', apiKey: env.OPENAI_API_KEY, baseUrl: base ?? 'https://api.openai.com' };
-  }
-  if (env.DEEPSEEK_API_KEY) {
-    return { provider: 'openai', model: model ?? 'deepseek-chat', apiKey: env.DEEPSEEK_API_KEY, baseUrl: base ?? 'https://api.deepseek.com' };
-  }
-  if (env.OPENROUTER_API_KEY) {
-    return { provider: 'openai', model: model ?? 'anthropic/claude-sonnet-4.5', apiKey: env.OPENROUTER_API_KEY, baseUrl: base ?? 'https://openrouter.ai/api' };
-  }
-  if (env.GROQ_API_KEY) {
-    return { provider: 'openai', model: model ?? 'llama-3.3-70b-versatile', apiKey: env.GROQ_API_KEY, baseUrl: base ?? 'https://api.groq.com/openai' };
-  }
-  if (env.OLLAMA_HOST || env.MCAI_OLLAMA) {
-    // The adapter appends `/v1/chat/completions`, so the base must not end
-    // in `/v1` — a very easy way to end up requesting `/v1/v1/...`.
-    const host = (env.OLLAMA_HOST ?? 'http://127.0.0.1:11434').replace(/\/+$/, '').replace(/\/v1$/, '');
-    return { provider: 'openai', model: model ?? 'qwen2.5-coder:14b', apiKey: 'ollama', baseUrl: host };
-  }
-  return null;
+  return resolveConfig(env);
 }
 
 export class LlmClient {

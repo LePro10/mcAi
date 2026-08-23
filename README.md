@@ -8,7 +8,8 @@ A natural-language builder for Minecraft. Stand somewhere, type
 `!build a huge castle on the hill`, and a castle appears — fitted to your
 terrain, matched to your biome, in seconds, for fractions of a cent.
 
-`npx mcai serve --sim` → try it in a browser with no Minecraft server at all.
+Clone it, run one command, and it works — no account, no login, no key required
+to start.
 
 </div>
 
@@ -31,34 +32,66 @@ mcAI: Done. 44,611 blocks changed · $0.0031. !undo if you hate it.
 - **Cheap.** Roughly 3,000–6,000 tokens for a custom build. Library structures
   cost nothing at all.
 - **Reversible.** `!undo` restores the region exactly, block states and all.
+- **Any AI you like.** Fourteen providers, or a local model, or none.
 - **Yours.** Styles and structures are JSON files you can edit.
 
-## Install
+## Get it running
+
+You need [Node 20+](https://nodejs.org). Nothing else.
 
 ```sh
-npm install -g mcai      # or use npx mcai <command>
+git clone https://github.com/LePro10/mcAi.git
+cd mcAi
+npm install          # installs and builds
+./mcai serve --sim   # dashboard at http://127.0.0.1:8765
 ```
 
-Needs Node 20+. That is the only requirement for the simulator.
+That is a complete, working mcAI with a simulated world. Click a structure,
+watch it build, look at the render. **No Minecraft, no Java, no API key, no
+account.**
 
-### Try it without Minecraft
+> `npx mcai` does not work yet — the package is not on npm. Clone it.
+> Windows: use `node dist/cli/main.js` in place of `./mcai`.
+
+### In a container instead
+
+If you would rather nothing touched your machine, `compose.yaml` brings up a
+Paper server and mcAI beside it:
 
 ```sh
-npx mcai serve --sim
+docker compose up -d
 ```
 
-Opens a dashboard at `http://127.0.0.1:8765` running a simulated world. Click a
-structure, watch it build, see the isometric render. Nothing is installed and
-nothing is downloaded.
+Dashboard on `localhost:8765`, Minecraft on `localhost:25565`. Everything lives
+in named volumes; `docker compose down -v` removes all of it.
 
-Or stay in the terminal:
+### Connect an AI
+
+Optional — fifteen structures build without one. For anything else:
 
 ```sh
-npx mcai sim "a huge castle" --out castle.svg
-npx mcai bench
+./mcai setup
 ```
 
-### Use it with a real server
+It lists every provider, takes your key, tests it against the real endpoint,
+and saves it to `~/.mcai/config.json` with owner-only permissions. You can do
+the same from the dashboard: **AI provider**, top right.
+
+| | providers |
+| --- | --- |
+| **Hosted** | Anthropic · OpenAI · Google Gemini · OpenRouter · DeepSeek · Groq · Mistral · xAI Grok · Together · Fireworks · Cerebras |
+| **Local, free** | Ollama · LM Studio |
+| **Anything else** | any OpenAI-compatible endpoint |
+
+`./mcai providers` lists them with notes. If you already export a key
+(`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GEMINI_API_KEY`, …) it is picked up
+automatically and wins over the saved file, so containers and CI need no setup
+step.
+
+There is no mcAI account and no login. Your key goes to the provider you chose
+and nowhere else.
+
+### With a real Minecraft server
 
 Any Paper, Spigot, Fabric or vanilla server, 1.20+. Enable RCON in
 `server.properties`:
@@ -73,16 +106,14 @@ Then:
 
 ```sh
 export RCON_PASSWORD=pick-something
-export ANTHROPIC_API_KEY=sk-...        # optional, see Models below
-npx mcai serve
+./mcai serve
 ```
 
-Join the server and type `!build a wizard tower`. The dashboard is at
-`http://127.0.0.1:8765`.
+Join the server and type `!build a wizard tower`.
 
-Run `npx mcai doctor` if something is not working — it checks the toolchain,
-the model configuration, the compiler and the server connection, and tells you
-which one is wrong.
+Run `./mcai doctor` when something is wrong — it checks Node, the provider, the
+key, the compiler, the build pipeline and the server connection, and tells you
+which one failed.
 
 ## In-game commands
 
@@ -94,27 +125,6 @@ which one is wrong.
 | `!status` | Progress, totals, spend. |
 | `!style <name>` | Force a style, or `!style auto` for biome matching. |
 | `!list` | Structures that build instantly, no model needed. |
-
-## Models
-
-mcAI speaks two wire formats, which covers nearly everything. It picks up
-whichever key you already have:
-
-| provider | environment variable |
-| --- | --- |
-| Anthropic | `ANTHROPIC_API_KEY` |
-| OpenAI | `OPENAI_API_KEY` |
-| DeepSeek | `DEEPSEEK_API_KEY` |
-| OpenRouter | `OPENROUTER_API_KEY` |
-| Groq | `GROQ_API_KEY` |
-| Ollama (local, free) | `OLLAMA_HOST=http://127.0.0.1:11434` |
-
-Override anything explicitly with `MCAI_PROVIDER`, `MCAI_MODEL`,
-`MCAI_API_KEY`, `MCAI_BASE_URL`.
-
-**With no model at all**, mcAI still works: any request naming a library
-structure builds instantly and free. `!build castle`, `!build lighthouse`,
-`!build japanese temple`.
 
 ## How it is fast
 
@@ -134,7 +144,7 @@ maximal runs of identical material and emits one `/fill` per run, so a wall that
 is 1,184 voxels becomes four commands instead of 1,184.
 
 ```
-$ mcai bench
+$ ./mcai bench
 
   structure      blocks   commands   blocks/cmd    ms   size
   ────────────────────────────────────────────────────────────────
@@ -178,7 +188,7 @@ write by hand, and a file in `blueprints/` becomes buildable by name.
 ```
 
 ```sh
-mcai render blueprints/gatehouse.json --ascii
+./mcai render blueprints/gatehouse.json --ascii
 ```
 
 Twenty-three ops: boxes, shells, cylinders, spheres, cones, pyramids, real
@@ -217,7 +227,7 @@ can build in your world:
 ```json
 {
   "mcpServers": {
-    "mcai": { "command": "npx", "args": ["-y", "mcai-mcp"] }
+    "mcai": { "command": "node", "args": ["/absolute/path/to/mcAi/dist/mcp/main.js"] }
   }
 }
 ```
@@ -254,9 +264,8 @@ The dashboard binds to loopback. It can place blocks and spend tokens, so set
 ## Development
 
 ```sh
-npm install
-npm run build
-npm test          # 141 tests, no network, no Minecraft
+npm install       # also builds
+npm test          # 167 tests, no network, no Minecraft
 ```
 
 The test suite runs the whole pipeline against an in-memory Minecraft that

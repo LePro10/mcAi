@@ -50,7 +50,8 @@ biome first.")*
 > source, MIT.
 >
 > You can try it without installing Minecraft at all:
-> `npx mcai serve --sim` — opens a dashboard with a simulated world.
+> `git clone`, `npm install`, `./mcai serve --sim` — a dashboard with a
+> simulated world. No key needed.
 >
 > [github link]
 >

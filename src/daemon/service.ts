@@ -16,6 +16,7 @@ import { Executor, type CommandRunner, type Snapshot } from './executor.js';
 import { buildSize, place, sampleTerrain, survey, type PlayerInfo, type SiteWorld } from './site.js';
 import { Agent, type AgentHost, type AgentResult, type BuildOutcome, type SurveyResult } from '../agent/agent.js';
 import { LlmClient, estimateCost, type LlmConfig } from '../agent/llm.js';
+import { resolveConfig } from '../agent/config.js';
 import { loadBlueprints, loadStyles } from './library.js';
 import type { Palette } from '../core/palette.js';
 
@@ -66,6 +67,8 @@ export interface ServiceOptions {
 }
 
 export class BuildService extends EventEmitter implements AgentHost {
+  /** Mutable so saving a provider in the dashboard takes effect immediately. */
+  private llm: LlmConfig | null = null;
   private queue: Job[] = [];
   private current: Job | null = null;
   private executor: Executor;
@@ -103,7 +106,21 @@ export class BuildService extends EventEmitter implements AgentHost {
       this.current.blocks = p.blocksChanged;
       this.emitState();
     });
+    this.llm = opts.llm ?? null;
     if (opts.library !== false) this.reloadLibrary();
+  }
+
+  /**
+   * Re-read the model configuration.
+   *
+   * Called after the dashboard saves a provider, so picking one takes effect
+   * on the next build rather than on the next restart.
+   */
+  reloadModel(): LlmConfig | null {
+    this.llm = resolveConfig();
+    this.log(this.llm ? `Model: ${this.llm.model}` : 'No model configured — library builds only');
+    this.emitState();
+    return this.llm;
   }
 
   /** Re-read user styles and blueprints from disk. */
@@ -141,7 +158,7 @@ export class BuildService extends EventEmitter implements AgentHost {
       style: this.styleOverride,
       customStyles: Object.keys(this.customStyles),
       customBlueprints: Object.keys(this.customBlueprints),
-      llm: this.opts.llm ? { provider: this.opts.llm.provider, model: this.opts.llm.model } : null,
+      llm: this.llm ? { provider: this.llm.provider, model: this.llm.model } : null,
       prefabs: listPrefabs().map((p) => p.name),
       // Deduplicate: styles/ ships an editable copy of every built-in, so a
       // naive concatenation lists each name twice.
@@ -219,7 +236,7 @@ export class BuildService extends EventEmitter implements AgentHost {
     // all. This is most requests, and it is instant and free.
     const direct = this.matchStructure(job.prompt);
     const wantsCustom = /\b(like|shaped|with|and then|custom|design)\b/i.test(job.prompt);
-    if (direct && (!this.opts.llm || (!wantsCustom && job.prompt.split(/\s+/).length <= 6))) {
+    if (direct && (!this.llm || (!wantsCustom && job.prompt.split(/\s+/).length <= 6))) {
       this.log(`"${job.prompt}" matched the ${direct} prefab — building directly`);
       job.phase = 'building';
       job.status = 'building';
@@ -233,14 +250,14 @@ export class BuildService extends EventEmitter implements AgentHost {
       return;
     }
 
-    if (!this.opts.llm) {
+    if (!this.llm) {
       job.status = 'failed';
       job.error = `No model configured, and "${job.prompt}" does not match a built-in structure. ` +
         `Try one of: ${listPrefabs().slice(0, 8).map((p) => p.name).join(', ')}`;
       return;
     }
 
-    const agent = new Agent(new LlmClient(this.opts.llm), this, { maxTurns: this.opts.agentTurns ?? 6 });
+    const agent = new Agent(new LlmClient(this.llm), this, { maxTurns: this.opts.agentTurns ?? 6 });
     agent.on('tool', (t: { name: string }) => {
       job.phase = t.name === 'survey' ? 'surveying' : 'building';
       if (t.name !== 'survey') job.status = 'building';
@@ -421,8 +438,8 @@ export class BuildService extends EventEmitter implements AgentHost {
   costSoFar(): string { return `$${this.totals.costUsd.toFixed(4)}`; }
 
   estimate(tokensIn: number, tokensOut: number): number {
-    if (!this.opts.llm) return 0;
-    return estimateCost(this.opts.llm.model, {
+    if (!this.llm) return 0;
+    return estimateCost(this.llm.model, {
       inputTokens: tokensIn, outputTokens: tokensOut, cacheReadTokens: 0, cacheWriteTokens: 0,
     });
   }

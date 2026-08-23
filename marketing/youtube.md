@@ -25,7 +25,7 @@ no red circles. One number burned in the corner: **41,564 blocks**.
 > everything it can. That's why a 41,000-block castle takes two seconds and
 > costs a third of a cent.
 >
-> Try it without installing Minecraft: npx mcai serve --sim
+> Try it without installing Minecraft: git clone, npm install, ./mcai serve --sim
 > Code: [github]
 >
 > 0:00 One sentence, one castle
@@ -72,10 +72,12 @@ the battlements. One continuous shot, no cuts, so nobody thinks it's staged.
 **Screen** — Type it live:
 ```
 export RCON_PASSWORD=whatever
-npx mcai serve
+./mcai setup     # pick a provider
+./mcai serve
 ```
 
-> One command. It joins your server as a bot, and that's it.
+> Pick whichever AI you want — there are fourteen, including local ones that
+> cost nothing. Or skip it entirely; fifteen structures build with no AI at all.
 
 **Screen** — Browser at `localhost:8765`, dashboard visible.
 
@@ -86,8 +88,8 @@ npx mcai serve
 > it runs the whole thing against a simulated world in memory. Same dashboard,
 > no Minecraft, no Java.
 
-**Screen** — `npx mcai serve --sim`, click a structure in the gallery, it
-builds and renders.
+**Screen** — `./mcai serve --sim`, click a structure in the gallery, it builds
+and renders.
 
 ### 1:10 — Terrain and biome
 

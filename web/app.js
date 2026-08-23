@@ -28,7 +28,7 @@ function renderPills(state) {
   const pills = [
     pill('bot', s.bot?.connected, s.bot?.connected ? `${s.bot.username} @ ${(s.bot.position || []).join(', ')}` : 'offline'),
     pill('rcon', s.rcon?.connected, s.rcon?.connected ? `${s.rcon.avgLatencyMs ?? 0}ms avg` : 'offline'),
-    pill('model', !!state.llm, state.llm ? state.llm.model : 'prefabs only'),
+    pill('model', !!state.llm, state.llm ? state.llm.model : 'none — click AI provider'),
     pill('players', (s.bot?.players || []).length > 0, `${(s.bot?.players || []).length} online`),
   ];
   $('pills').innerHTML = pills.join('');
@@ -254,6 +254,151 @@ function escapeHtml(s) {
   ));
 }
 const escapeAttr = escapeHtml;
+
+// ── Provider setup ────────────────────────────────────────────────────────
+
+const settings = {
+  dialog: $('settings'),
+  providers: [],
+  current: null,
+  selected: null,
+  configFile: '',
+};
+
+async function loadProviders() {
+  const res = await api('/api/providers');
+  if (!res.ok) return;
+  const data = await res.json();
+  settings.providers = data.providers;
+  settings.current = data.current;
+  settings.configFile = data.configFile;
+  renderProviderGrid();
+  renderCurrent();
+}
+
+function renderCurrent() {
+  const c = settings.current;
+  const el = $('settings-current');
+  if (!c?.configured) {
+    el.innerHTML = 'No provider yet. Pick one below — or skip it: the fifteen built-in structures build without any AI at all.';
+    return;
+  }
+  const from = c.source === 'env' ? ' (set by an environment variable, which overrides anything saved here)' : '';
+  el.innerHTML = `Using <b>${escapeHtml(c.providerName)}</b> · <b>${escapeHtml(c.model)}</b>` +
+    (c.keyMasked ? ` · ${escapeHtml(c.keyMasked)}` : '') + escapeHtml(from);
+}
+
+function renderProviderGrid() {
+  const grid = $('provider-grid');
+  grid.innerHTML = settings.providers.map((p) => `
+    <button type="button" class="provider${p.local ? ' free' : ''}" data-id="${escapeAttr(p.id)}"
+            aria-pressed="${settings.selected === p.id}">
+      ${escapeHtml(p.name)}
+      <span class="tag">${p.local ? 'free · local' : p.needsKey ? 'api key' : 'advanced'}</span>
+    </button>`).join('');
+}
+
+function selectProvider(id) {
+  const p = settings.providers.find((x) => x.id === id);
+  if (!p) return;
+  settings.selected = id;
+  renderProviderGrid();
+
+  $('provider-form').hidden = false;
+  $('field-url').hidden = !(p.id === 'custom' || p.local);
+  $('p-url').value = p.baseUrl || '';
+  $('field-key').hidden = p.local;
+
+  const link = $('key-link');
+  if (p.keyUrl && !p.local) { link.href = p.keyUrl; link.textContent = 'get one'; link.hidden = false; }
+  else link.hidden = true;
+
+  // Local providers are addressed, not authenticated; say so where the key
+  // field would have been.
+  const install = $('p-install');
+  if (p.local && p.keyUrl) {
+    install.hidden = false;
+    install.innerHTML = `Not installed? <a href="${escapeAttr(p.keyUrl)}" target="_blank" rel="noopener noreferrer">Get ${escapeHtml(p.name)}</a>, start it, then Test.`;
+  } else install.hidden = true;
+
+  // Keep the existing key when reselecting the active provider: it is never
+  // sent to the browser, and an empty field means "leave it alone".
+  const isCurrent = settings.current?.configured && settings.current.provider === id;
+  $('p-key').value = '';
+  $('p-key').placeholder = isCurrent && settings.current.keyMasked
+    ? `${settings.current.keyMasked} — leave blank to keep`
+    : 'paste it here';
+
+  $('p-model').value = isCurrent ? settings.current.model : p.defaultModel;
+  $('p-models').innerHTML = p.models.map((m) => `<option value="${escapeAttr(m)}">`).join('');
+  $('p-note').textContent = p.note || '';
+  $('p-where').textContent = p.local
+    ? `Saved to ${settings.configFile}. Requests stay on this machine.`
+    : `Saved to ${settings.configFile}, readable only by you. The key goes to ${p.name} and nowhere else.`;
+  $('p-clear').hidden = !settings.current?.configured;
+  showResult(null);
+}
+
+function showResult(msg, kind) {
+  const el = $('p-result');
+  if (!msg) { el.hidden = true; return; }
+  el.hidden = false;
+  el.textContent = msg;
+  el.className = `dialog-result${kind ? ` ${kind}` : ''}`;
+}
+
+function providerPayload(extra = {}) {
+  return {
+    provider: settings.selected,
+    model: $('p-model').value.trim(),
+    apiKey: $('p-key').value.trim(),
+    baseUrl: $('p-url').value.trim(),
+    ...extra,
+  };
+}
+
+$('provider-grid').addEventListener('click', (e) => {
+  const btn = e.target.closest('[data-id]');
+  if (btn) selectProvider(btn.dataset.id);
+});
+
+$('settings-btn').addEventListener('click', async () => {
+  await loadProviders();
+  if (settings.current?.configured) selectProvider(settings.current.provider);
+  settings.dialog.showModal();
+});
+
+$('p-test').addEventListener('click', async () => {
+  showResult('Testing…');
+  const res = await api('/api/provider/test', { method: 'POST', body: JSON.stringify(providerPayload()) });
+  const body = await res.json();
+  if (body.ok) showResult(`Works. Answered in ${body.ms}ms${body.model ? ` as ${body.model}` : ''}.`, 'ok');
+  else showResult(body.error || 'Test failed.', 'bad');
+});
+
+$('p-save').addEventListener('click', async () => {
+  showResult('Checking, then saving…');
+  const res = await api('/api/provider', { method: 'POST', body: JSON.stringify(providerPayload()) });
+  const body = await res.json();
+  if (!body.ok) { showResult(body.error || 'Could not save.', 'bad'); return; }
+  settings.current = body.current;
+  renderCurrent();
+  showResult('Saved. Builds will use it from now on.', 'ok');
+  toast(`Using ${body.current.providerName}`);
+  refreshStatus();
+});
+
+$('p-clear').addEventListener('click', async () => {
+  const res = await api('/api/provider/clear', { method: 'POST' });
+  const body = await res.json();
+  settings.current = body.current;
+  settings.selected = null;
+  renderCurrent();
+  renderProviderGrid();
+  $('provider-form').hidden = true;
+  toast('Provider removed — library structures still build');
+  refreshStatus();
+});
 
 // ── Boot ──────────────────────────────────────────────────────────────────
 

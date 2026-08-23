@@ -18,6 +18,11 @@ import { fileURLToPath } from 'node:url';
 import { compile, getPrefab, listPrefabs, listStyles, PALETTES, renderIsoSvg, validateBlueprint, formatIssues, VERSION } from '../core/index.js';
 import type { Blueprint } from '../core/types.js';
 import type { BuildService } from './service.js';
+import { listProviders, getProvider, needsKey, normalizeBaseUrl } from '../agent/providers.js';
+import {
+  clearStored, configPath, describeConfig, readStored, testConfig, writeStored,
+} from '../agent/config.js';
+import type { LlmConfig } from '../agent/llm.js';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const WEB_DIR = path.resolve(HERE, '../../web');
@@ -94,6 +99,49 @@ export function createServer(service: BuildService, opts: ServerOptions = {}) {
         if (ping.unref) ping.unref();
         req.on('close', () => { clearInterval(ping); clients.delete(res); });
         return;
+      }
+
+      // ── Model setup ──
+      if (route === '/api/providers') {
+        return json(res, 200, {
+          providers: listProviders(),
+          current: describeConfig(),
+          configFile: configPath(),
+        });
+      }
+
+      if (req.method === 'POST' && route === '/api/provider/test') {
+        const cfg = configFromBody(await readJson(req));
+        if ('error' in cfg) return json(res, 400, { ok: false, error: cfg.error });
+        return json(res, 200, await testConfig(cfg.config));
+      }
+
+      if (req.method === 'POST' && route === '/api/provider') {
+        const body = await readJson(req);
+        const cfg = configFromBody(body);
+        if ('error' in cfg) return json(res, 400, { ok: false, error: cfg.error });
+
+        // Refuse to save something that does not work: a saved-but-broken
+        // config sends people looking for the fault in the wrong place.
+        if (body.skipTest !== true) {
+          const check = await testConfig(cfg.config);
+          if (!check.ok) return json(res, 400, { ok: false, error: check.error, tested: true });
+        }
+
+        writeStored({
+          provider: cfg.providerId,
+          model: cfg.config.model,
+          apiKey: cfg.config.apiKey === 'not-needed' ? undefined : cfg.config.apiKey,
+          baseUrl: cfg.config.baseUrl,
+        });
+        service.reloadModel();
+        return json(res, 200, { ok: true, current: describeConfig() });
+      }
+
+      if (req.method === 'POST' && route === '/api/provider/clear') {
+        clearStored();
+        service.reloadModel();
+        return json(res, 200, { ok: true, current: describeConfig() });
       }
 
       if (route === '/api/prefabs') return json(res, 200, { prefabs: listPrefabs() });
@@ -224,6 +272,38 @@ export function createServer(service: BuildService, opts: ServerOptions = {}) {
       clients.clear();
       return new Promise((resolve) => server.close(() => resolve()));
     },
+  };
+}
+
+/**
+ * Turn a settings payload into a testable configuration.
+ *
+ * An empty key means "keep the one already saved", so the dashboard never has
+ * to receive a key in order to send one back.
+ */
+function configFromBody(body: Record<string, unknown>):
+  | { providerId: string; config: LlmConfig }
+  | { error: string } {
+  const providerId = String(body.provider ?? '');
+  const p = getProvider(providerId);
+  if (!p) return { error: `Unknown provider "${providerId}".` };
+
+  const model = String(body.model ?? '').trim() || p.defaultModel;
+  if (!model) return { error: 'Pick a model.' };
+
+  const baseUrl = normalizeBaseUrl(String(body.baseUrl ?? '').trim() || p.baseUrl);
+  if (!baseUrl) return { error: 'This provider needs a base URL.' };
+
+  let apiKey = String(body.apiKey ?? '').trim();
+  if (!apiKey) {
+    const stored = readStored();
+    if (stored?.provider === providerId && stored.apiKey) apiKey = stored.apiKey;
+  }
+  if (needsKey(p) && !apiKey) return { error: `${p.name} needs an API key.` };
+
+  return {
+    providerId,
+    config: { provider: p.wire, model, apiKey: apiKey || 'not-needed', baseUrl },
   };
 }
 

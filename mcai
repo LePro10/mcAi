@@ -1,0 +1,19 @@
+#!/usr/bin/env bash
+# mcAI launcher for a git clone.
+#
+# Builds if needed, then runs the CLI. Lets someone use ./mcai straight after
+# cloning without knowing whether the TypeScript has been compiled yet.
+set -euo pipefail
+cd "$(dirname "$0")"
+
+if [ ! -d node_modules ]; then
+  echo "Installing dependencies…"
+  npm install --silent
+fi
+
+if [ ! -f dist/cli/main.js ] || [ -n "$(find src -newer dist/cli/main.js -name '*.ts' -print -quit 2>/dev/null)" ]; then
+  echo "Building…"
+  npm run build --silent
+fi
+
+exec node dist/cli/main.js "$@"

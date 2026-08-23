@@ -262,3 +262,77 @@ tr.empty-row td { color: #4d5666; text-align: center; padding: 18px; }
   box-shadow: 0 8px 28px #0009; z-index: 50;
 }
 .toast.error { border-color: var(--error); color: #ff9a8a; }
+
+/* ── Provider dialog ── */
+
+/* An author `display` rule beats the user agent's [hidden] rule, so a flex
+   container marked hidden stays visible. This is why the key field showed up
+   for local providers that do not take one. */
+[hidden] { display: none !important; }
+
+dialog {
+  border: 1px solid var(--line); border-radius: var(--radius);
+  background: var(--panel); color: var(--text);
+  padding: 0; width: min(680px, 92vw); max-height: 88vh; overflow: auto;
+  box-shadow: 0 24px 70px #000a;
+}
+dialog::backdrop { background: #05070ac9; backdrop-filter: blur(3px); }
+
+.dialog-head {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 16px; padding: 16px 20px; border-bottom: 1px solid var(--line);
+  position: sticky; top: 0; background: var(--panel); z-index: 1;
+}
+.dialog-head h2 { margin: 0; font-size: 15px; font-weight: 600; color: var(--text); text-transform: none; letter-spacing: 0; }
+.dialog-head button {
+  background: transparent; border: 0; color: var(--muted);
+  font-size: 16px; padding: 4px 8px; line-height: 1;
+}
+.dialog-head button:hover { color: var(--text); }
+
+.dialog-lede { margin: 16px 20px 0; color: var(--muted); font-size: 13px; }
+.dialog-lede b { color: var(--text); font-weight: 500; }
+.dialog-note { margin: 10px 20px 0; color: var(--muted); font-size: 12px; line-height: 1.5; }
+.dialog-note a { color: var(--accent); }
+
+.provider-grid {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 8px; padding: 16px 20px;
+}
+.provider {
+  background: var(--panel-2); border: 1px solid var(--line); border-radius: 8px;
+  padding: 10px 12px; cursor: pointer; text-align: left; color: var(--text);
+  font-weight: 500; font-size: 13px; display: flex; flex-direction: column; gap: 3px;
+}
+.provider:hover { border-color: #3a4150; }
+.provider[aria-pressed="true"] { border-color: var(--accent); background: #12271d; }
+.provider .tag {
+  font-family: var(--mono); font-size: 10px; color: var(--muted);
+  text-transform: uppercase; letter-spacing: 0.06em;
+}
+.provider[aria-pressed="true"] .tag { color: var(--accent); }
+.provider.free .tag { color: var(--accent); }
+
+.provider-form { padding: 4px 20px 20px; border-top: 1px solid var(--line); }
+.field { display: flex; flex-direction: column; gap: 5px; margin-top: 14px; }
+.field > span {
+  font-size: 11px; text-transform: uppercase; letter-spacing: 0.6px; color: var(--muted);
+  display: flex; justify-content: space-between; gap: 10px;
+}
+.field > span a { color: var(--accent); text-transform: none; letter-spacing: 0; font-size: 12px; }
+.field input {
+  background: var(--panel-2); color: var(--text); border: 1px solid var(--line);
+  border-radius: 8px; padding: 9px 12px; font-family: var(--mono); font-size: 13px;
+}
+.field input:focus { outline: 2px solid var(--accent-dim); outline-offset: -1px; }
+
+.dialog-actions { display: flex; gap: 8px; margin-top: 18px; flex-wrap: wrap; }
+.dialog-result {
+  margin: 14px 0 0; padding: 10px 12px; border-radius: 8px;
+  font-family: var(--mono); font-size: 12px; line-height: 1.5;
+  border: 1px solid var(--line); background: var(--panel-2); color: var(--muted);
+}
+.dialog-result.ok { border-color: var(--accent-dim); color: #7fe0ac; }
+.dialog-result.bad { border-color: var(--error); color: #ff9a8a; }
+
+#settings-btn { white-space: nowrap; }

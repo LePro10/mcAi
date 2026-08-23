@@ -79,6 +79,8 @@ ${C.bold('COMMANDS')}
   doctor              Check configuration, provider and server reachability.
   prefabs             List the built-in structures.
   styles              List the style palettes.
+  setup               Pick an AI provider and save the key. Start here.
+  providers           List every supported provider.
   prompt              Print the system prompt sent to the model.
   serve               Start the bot daemon and dashboard.
   serve --sim         Same, against a simulated world. No Minecraft needed.
@@ -96,6 +98,7 @@ ${C.bold('OPTIONS')}
   --json              Machine-readable output.
 
 ${C.bold('EXAMPLES')}
+  mcai setup
   mcai sim "a huge medieval castle on a hill" --out castle.svg
   mcai render castle --params '{"size":61}' --ascii
   mcai serve --sim
@@ -291,11 +294,11 @@ async function cmdSim(args: Args): Promise<void> {
     const name = matchPrefab(prompt);
     if (!name) {
       console.error(C.red(`\n  No LLM configured and "${prompt}" does not match a prefab.`));
-      console.error(C.dim(`  Set ANTHROPIC_API_KEY (or OPENAI_API_KEY, DEEPSEEK_API_KEY, OLLAMA_HOST),`));
+      console.error(C.dim(`  Run "mcai setup" to pick a provider,`));
       console.error(C.dim(`  or try one of: ${listPrefabs().map((p) => p.name).join(', ')}\n`));
       process.exit(1);
     }
-    console.log(`  ${C.dim('model')}  ${C.yellow('none configured')} — matched prefab "${name}"\n`);
+    console.log(`  ${C.dim('model')}  ${C.yellow('none configured')} ${C.dim('(mcai setup)')} — matched prefab "${name}"\n`);
     const bp = getPrefab(name)!;
     if (typeof args.flags.style === 'string') bp.palette = args.flags.style;
     const terrain = sampleTerrain(site, player.position, 64);
@@ -331,13 +334,15 @@ async function cmdDoctor(args: Args): Promise<void> {
   const [major] = process.versions.node.split('.').map(Number);
   check('node', major >= 20, `v${process.versions.node}${major >= 20 ? '' : ' — mcAI needs 20 or newer'}`);
 
-  const config = configFromEnv();
-  check('llm provider', !!config,
-    config ? `${config.provider} · ${config.model}` : 'none found — prefabs still work, freeform prompts will not');
-
-  if (config) {
-    const masked = config.apiKey.length > 8 ? `${config.apiKey.slice(0, 4)}…${config.apiKey.slice(-2)}` : 'set';
-    check('api key', config.apiKey !== 'not-needed', `${masked} · ${config.baseUrl}`);
+  const { describeConfig } = await import('../agent/config.js');
+  const current = describeConfig();
+  check('ai provider', current.configured,
+    current.configured
+      ? `${current.providerName} · ${current.model} · from ${current.source === 'file' ? 'saved config' : current.source}`
+      : 'none — run "mcai setup". Library structures still build without one.');
+  if (current.configured) {
+    check('api key', !!current.keyMasked || current.local,
+      current.local ? `local endpoint ${current.baseUrl}` : `${current.keyMasked} · ${current.baseUrl}`);
   }
 
   // Compiler self-test: a real build has to come out the far end.
@@ -410,6 +415,25 @@ async function main(): Promise<void> {
     case 'doctor': return cmdDoctor(args);
     case 'prefabs': case 'list': return cmdPrefabs(args);
     case 'styles': return cmdStyles(args);
+    case 'setup': case 'config': case 'login': {
+      const { runSetup } = await import('./setup.js');
+      return runSetup(argv.slice(1));
+    }
+    case 'providers': {
+      const { listProviders } = await import('../agent/providers.js');
+      const { describeConfig } = await import('../agent/config.js');
+      const current = describeConfig();
+      if (args.flags.json) { console.log(JSON.stringify({ providers: listProviders(), current }, null, 2)); return; }
+      console.log(C.bold(`\n  ${listProviders().length} providers\n`));
+      for (const p of listProviders()) {
+        const active = current.configured && current.provider === p.id;
+        const tag = p.local ? C.green('free, local') : p.needsKey ? C.dim('needs a key') : C.dim('advanced');
+        console.log(`  ${active ? C.green('●') : ' '} ${C.cyan(p.name.padEnd(16))}${tag}`);
+        if (p.note) console.log(`    ${C.dim(p.note)}`);
+      }
+      console.log(C.dim(`\n  mcai setup  to choose one\n`));
+      return;
+    }
     case 'prompt': console.log(buildSystemPrompt()); return;
     case 'serve': {
       if (args.flags.sim) {

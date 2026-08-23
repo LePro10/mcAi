@@ -16,6 +16,7 @@
     <span class="version" id="version"></span>
   </div>
   <div class="pills" id="pills"></div>
+  <button type="button" class="ghost" id="settings-btn">AI provider</button>
 </header>
 
 <main>
@@ -78,6 +79,47 @@
     </table>
   </section>
 </main>
+
+<!-- ── Provider setup ── -->
+<dialog id="settings" aria-labelledby="settings-title">
+  <form method="dialog" class="dialog-head">
+    <h2 id="settings-title">AI provider</h2>
+    <button value="close" aria-label="Close">✕</button>
+  </form>
+
+  <p class="dialog-lede" id="settings-current"></p>
+
+  <div class="provider-grid" id="provider-grid"></div>
+
+  <div class="provider-form" id="provider-form" hidden>
+    <label class="field" id="field-url" hidden>
+      <span>Base URL</span>
+      <input type="text" id="p-url" spellcheck="false" placeholder="https://…">
+    </label>
+
+    <label class="field" id="field-key">
+      <span>API key <a id="key-link" href="#" target="_blank" rel="noopener noreferrer">get one</a></span>
+      <input type="password" id="p-key" spellcheck="false" autocomplete="off" placeholder="paste it here">
+    </label>
+
+    <label class="field">
+      <span>Model</span>
+      <input type="text" id="p-model" spellcheck="false" list="p-models">
+      <datalist id="p-models"></datalist>
+    </label>
+
+    <p class="dialog-note" id="p-install" hidden></p>
+    <p class="dialog-note" id="p-note"></p>
+    <p class="dialog-result" id="p-result" hidden></p>
+
+    <div class="dialog-actions">
+      <button type="button" class="ghost" id="p-test">Test</button>
+      <button type="button" id="p-save">Save</button>
+      <button type="button" class="ghost danger" id="p-clear">Remove</button>
+    </div>
+    <p class="dialog-note" id="p-where"></p>
+  </div>
+</dialog>
 
 <script src="/app.js"></script>
 </body>

@@ -1,0 +1,72 @@
+# A complete, isolated mcAI setup: a Minecraft server and mcAI beside it.
+#
+#   docker compose up -d
+#   open http://localhost:8765   → pick an AI provider in the dashboard
+#   connect Minecraft to         localhost:25565
+#
+# Nothing is installed on your machine and nothing leaves it except the
+# requests to whichever AI provider you choose.
+
+name: mcai
+
+services:
+  minecraft:
+    image: itzg/minecraft-server:java21
+    environment:
+      EULA: "TRUE"              # you accept Mojang's EULA by setting this
+      TYPE: PAPER
+      VERSION: "1.21.4"
+      MEMORY: 3G
+      ENABLE_RCON: "true"
+      RCON_PASSWORD: ${RCON_PASSWORD:-mcai-local}
+      ONLINE_MODE: "false"      # so the bot can join without a Mojang account
+      OPS: mcAI
+      MODE: creative
+      LEVEL_TYPE: minecraft:normal
+      VIEW_DISTANCE: 12
+    ports:
+      - "25565:25565"
+    volumes:
+      - minecraft-data:/data
+    healthcheck:
+      test: ["CMD", "mc-health"]
+      interval: 15s
+      timeout: 10s
+      retries: 30
+      start_period: 120s
+    restart: unless-stopped
+
+  mcai:
+    build: .
+    image: mcai:local
+    depends_on:
+      minecraft:
+        condition: service_healthy
+    environment:
+      MC_HOST: minecraft
+      MC_PORT: "25565"
+      RCON_PORT: "25575"
+      RCON_PASSWORD: ${RCON_PASSWORD:-mcai-local}
+      MC_USERNAME: mcAI
+      MCAI_HTTP_HOST: 0.0.0.0
+      # Optional: set a key here to skip the dashboard setup step. Any of the
+      # supported providers works; see `mcai providers`.
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+      DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-}
+      GROQ_API_KEY: ${GROQ_API_KEY:-}
+    ports:
+      - "8765:8765"
+    volumes:
+      # Keeps the provider you pick in the dashboard across restarts, and lets
+      # you drop your own styles and blueprints in.
+      - mcai-config:/data
+      - ./styles:/app/styles:ro
+      - ./blueprints:/app/blueprints:ro
+    restart: unless-stopped
+
+volumes:
+  minecraft-data:
+  mcai-config:

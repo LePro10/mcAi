@@ -21,19 +21,22 @@
     "web",
     "blueprints",
     "styles",
+    "scripts",
     "README.md",
     "LICENSE"
   ],
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "watch": "tsc -p tsconfig.json --watch",
+    "prepare": "node scripts/prepare.mjs",
     "test": "npm run build && node --test dist/test/*.test.js",
     "test:fast": "node --test dist/test/*.test.js",
-    "start": "node dist/daemon/main.js",
-    "mcp": "node dist/mcp/main.js",
-    "sim": "node dist/cli/main.js sim",
+    "setup": "node dist/cli/main.js setup",
+    "start": "node dist/cli/main.js serve",
+    "sim": "node dist/cli/main.js serve --sim",
     "doctor": "node dist/cli/main.js doctor",
-    "prepublishOnly": "npm run build"
+    "mcp": "node dist/mcp/main.js",
+    "bench": "node dist/cli/main.js bench"
   },
   "keywords": [
     "minecraft",
@@ -49,7 +52,8 @@
   ],
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.12.0",
-    "mineflayer": "^4.37.1"
+    "mineflayer": "^4.37.1",
+    "vec3": "^0.1.10"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",
