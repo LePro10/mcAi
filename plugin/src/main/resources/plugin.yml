@@ -1,0 +1,25 @@
+name: mcAI
+version: 5.1.0
+main: dev.mcai.plugin.McAiPlugin
+api-version: '1.20'
+description: Say what you want. Watch it get built.
+website: https://github.com/LePro10/mcAi
+authors: [mcAI contributors]
+# No hard dependency on anything: mcAI emits vanilla commands and reads the
+# world through the standard API, so it sits happily beside WorldEdit rather
+# than needing it.
+softdepend: [WorldEdit]
+
+commands:
+  mcai:
+    description: Build something, undo it, or set mcAI up.
+    usage: /mcai build <what you want>
+    aliases: [ai, build]
+
+permissions:
+  mcai.build:
+    description: Use /mcai build and /mcai undo.
+    default: op
+  mcai.admin:
+    description: Reload the configuration.
+    default: op

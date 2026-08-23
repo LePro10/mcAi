@@ -206,7 +206,19 @@ export function createServer(service: BuildService, opts: ServerOptions = {}) {
         const body = await readJson(req);
         const prompt = String(body.prompt ?? '').trim();
         if (!prompt) return json(res, 400, { error: 'prompt is required' });
-        const job = service.submit(String(body.player ?? 'dashboard'), prompt);
+
+        // The plugin knows exactly where the player stands and which way they
+        // face, and sends it; nothing else has to be looked up.
+        const at = body.at as { name?: string; position?: [number, number, number]; yaw?: number } | undefined;
+        if (at?.position && Array.isArray(at.position) && at.position.length === 3) {
+          service.setPlayer({
+            name: String(at.name ?? body.player ?? 'player'),
+            position: at.position.map(Math.round) as [number, number, number],
+            yaw: Number(at.yaw) || 0,
+          });
+        }
+
+        const job = service.submit(String(at?.name ?? body.player ?? 'dashboard'), prompt);
         if (!job) return json(res, 429, { error: 'Queue is full' });
         return json(res, 202, { job });
       }
@@ -264,7 +276,12 @@ export function createServer(service: BuildService, opts: ServerOptions = {}) {
       const host = opts.host ?? '127.0.0.1';
       return new Promise((resolve, reject) => {
         server.once('error', reject);
-        server.listen(port, host, () => resolve(port));
+        // Report the port the OS actually gave us: with `port: 0` the caller
+        // asked us to pick one, and it still has to print a working address.
+        server.listen(port, host, () => {
+          const address = server.address();
+          resolve(typeof address === 'object' && address ? address.port : port);
+        });
       });
     },
     close(): Promise<void> {

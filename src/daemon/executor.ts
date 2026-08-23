@@ -30,6 +30,14 @@ export interface WorldReader {
 export interface CommandRunner {
   send(command: string): Promise<string>;
   readonly connected: boolean;
+  /**
+   * Run a whole batch in one go, when the transport can.
+   *
+   * RCON cannot: it is one command per packet, so the executor pipelines
+   * instead. The server plugin can, and doing so turns 2,000 round trips into
+   * one request the server executes in a tight loop.
+   */
+  exec?(commands: string[]): Promise<Array<{ ok: boolean; affected: number; message: string }>>;
 }
 
 export interface ExecutorOptions {
@@ -233,23 +241,10 @@ export class Executor extends EventEmitter {
       for (let i = 0; i < build.commands.length; i += this.batchSize) {
         if (this.cancelRequested) return finish(true, snapshot);
         const batch = build.commands.slice(i, i + this.batchSize);
-        const replies = await Promise.allSettled(batch.map((c) => this.runner.send(c)));
-
-        for (let j = 0; j < replies.length; j++) {
-          const r = replies[j];
-          if (r.status === 'rejected') {
-            failures++;
-            errors.add(String(r.reason?.message ?? r.reason).slice(0, 160));
-            continue;
-          }
-          const changed = parseAffected(r.value);
-          if (changed === null) {
-            failures++;
-            errors.add(`${batch[j].slice(0, 60)} -> ${r.value.replace(/\n/g, ' ').slice(0, 100)}`);
-          } else {
-            blocksChanged += changed;
-          }
-        }
+        const outcome = await this.runBatch(batch);
+        blocksChanged += outcome.changed;
+        failures += outcome.failures;
+        for (const e of outcome.errors) errors.add(e);
 
         this.emitProgress(
           Math.min(i + batch.length, build.commands.length),
@@ -288,12 +283,10 @@ export class Executor extends EventEmitter {
     try {
       for (let i = 0; i < commands.length; i += this.batchSize) {
         const batch = commands.slice(i, i + this.batchSize);
-        const replies = await Promise.allSettled(batch.map((c) => this.runner.send(c)));
-        for (const r of replies) {
-          if (r.status === 'rejected') { failures++; errors.add(String(r.reason?.message).slice(0, 160)); continue; }
-          const changed = parseAffected(r.value);
-          if (changed === null) failures++; else blocksChanged += changed;
-        }
+        const outcome = await this.runBatch(batch);
+        blocksChanged += outcome.changed;
+        failures += outcome.failures;
+        for (const e of outcome.errors) errors.add(e);
         this.emitProgress(Math.min(i + batch.length, commands.length), commands.length, blocksChanged, failures, 'undoing', started);
         if (this.batchPauseMs > 0 && i + this.batchSize < commands.length) await sleep(this.batchPauseMs);
       }
@@ -316,6 +309,52 @@ export class Executor extends EventEmitter {
       snapshotId: snap.id,
       cancelled: false,
     };
+  }
+
+  /**
+   * Execute one batch, using the transport's own batching when it has any.
+   *
+   * A batch failure must not abort the build: a single rejected command is
+   * counted and reported, and the rest still land.
+   */
+  private async runBatch(batch: string[]): Promise<{ changed: number; failures: number; errors: string[] }> {
+    let changed = 0, failures = 0;
+    const errors: string[] = [];
+
+    if (this.runner.exec) {
+      try {
+        const results = await this.runner.exec(batch);
+        for (let j = 0; j < batch.length; j++) {
+          const r = results[j];
+          if (!r) { failures++; errors.push(`${batch[j].slice(0, 60)} -> no reply`); continue; }
+          const affected = parseAffected(r.message);
+          if (affected === null) {
+            failures++;
+            errors.push(`${batch[j].slice(0, 60)} -> ${r.message.replace(/\n/g, ' ').slice(0, 100)}`);
+          } else changed += affected;
+        }
+      } catch (err) {
+        failures += batch.length;
+        errors.push(String((err as Error).message).slice(0, 160));
+      }
+      return { changed, failures, errors };
+    }
+
+    const replies = await Promise.allSettled(batch.map((c) => this.runner.send(c)));
+    for (let j = 0; j < replies.length; j++) {
+      const r = replies[j];
+      if (r.status === 'rejected') {
+        failures++;
+        errors.push(String(r.reason?.message ?? r.reason).slice(0, 160));
+        continue;
+      }
+      const affected = parseAffected(r.value);
+      if (affected === null) {
+        failures++;
+        errors.push(`${batch[j].slice(0, 60)} -> ${r.value.replace(/\n/g, ' ').slice(0, 100)}`);
+      } else changed += affected;
+    }
+    return { changed, failures, errors };
   }
 
   private emitProgress(

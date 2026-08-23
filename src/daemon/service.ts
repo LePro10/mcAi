@@ -64,6 +64,14 @@ export interface ServiceOptions {
   agentTurns?: number;
   /** Load user styles and blueprints from disk. */
   library?: boolean;
+  /**
+   * Called before each survey or build, with the radius about to be examined.
+   *
+   * The plugin bridge uses this to pre-load a heightmap and a region in one
+   * request each: `SiteWorld` is synchronous because the compiler is, so the
+   * data has to be in hand before analysis starts.
+   */
+  prepare?(radius: number): Promise<void>;
 }
 
 export class BuildService extends EventEmitter implements AgentHost {
@@ -183,6 +191,18 @@ export class BuildService extends EventEmitter implements AgentHost {
     return job;
   }
 
+  /**
+   * Anchor the next build to a specific player.
+   *
+   * With the plugin, the player's position and facing arrive with the request
+   * itself, so there is nothing to look up.
+   */
+  setPlayer(player: PlayerInfo | null): void {
+    this.activePlayer = player;
+  }
+
+  get player(): PlayerInfo | null { return this.activePlayer; }
+
   cancel(): boolean {
     if (!this.current) return false;
     this.executor.cancel();
@@ -227,10 +247,13 @@ export class BuildService extends EventEmitter implements AgentHost {
   }
 
   private async runJob(job: Job): Promise<void> {
-    const player = this.getPlayer(job.player);
-    this.activePlayer = player ?? {
-      name: job.player, position: this.botPosition(), yaw: 0, facing: 'south',
-    };
+    // A player set by the caller wins: the plugin sends exact coordinates with
+    // the request, and looking them up again would only lose precision.
+    if (!this.activePlayer || this.activePlayer.name !== job.player) {
+      this.activePlayer = this.getPlayer(job.player) ?? {
+        name: job.player, position: this.botPosition(), yaw: 0, facing: 'south',
+      };
+    }
 
     // Fast path: a request that names a library structure needs no model at
     // all. This is most requests, and it is instant and free.
@@ -302,6 +325,7 @@ export class BuildService extends EventEmitter implements AgentHost {
   // ── AgentHost ───────────────────────────────────────────────────────────
 
   async survey(radius = 32): Promise<SurveyResult> {
+    await this.opts.prepare?.(radius);
     const player = this.activePlayer ?? { name: 'player', position: this.botPosition(), yaw: 0, facing: 'south' as const };
     const result = survey(this.world, player, this.botPosition(), radius);
     if (this.styleOverride) result.suggestedStyle = this.styleOverride;
@@ -309,6 +333,7 @@ export class BuildService extends EventEmitter implements AgentHost {
   }
 
   async build(bp: Blueprint, opts: { origin?: Vec3; rotate?: 0 | 90 | 180 | 270; note?: string }): Promise<BuildOutcome> {
+    await this.opts.prepare?.(72);
     const player = this.activePlayer ?? { name: 'player', position: this.botPosition(), yaw: 0, facing: 'south' as const };
     if (this.styleOverride && !bp.palette) bp.palette = this.styleOverride;
 

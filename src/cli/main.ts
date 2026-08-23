@@ -83,6 +83,7 @@ ${C.bold('COMMANDS')}
   providers           List every supported provider.
   prompt              Print the system prompt sent to the model.
   serve               Start the bot daemon and dashboard.
+  serve --plugin      Run behind the server plugin. Started for you by mcAI.jar.
   serve --sim         Same, against a simulated world. No Minecraft needed.
 
 ${C.bold('OPTIONS')}
@@ -436,6 +437,19 @@ async function main(): Promise<void> {
     }
     case 'prompt': console.log(buildSystemPrompt()); return;
     case 'serve': {
+      if (args.flags.plugin) {
+        // The path the server plugin starts. It spawns exactly this command,
+        // so the flag names here are part of the plugin's contract.
+        const { bridgeMain } = await import('../daemon/bridge-main.js');
+        return bridgeMain({
+          bridgeUrl: typeof args.flags.bridge === 'string' ? args.flags.bridge : undefined,
+          bridgeToken: typeof args.flags.token === 'string' ? args.flags.token : undefined,
+          httpHost: typeof args.flags.host === 'string' ? args.flags.host : undefined,
+          httpPort: num(args.flags.port, 8765),
+          httpToken: typeof args.flags.token === 'string' ? args.flags.token : undefined,
+          surveyRadius: num(args.flags.radius, 48),
+        });
+      }
       if (args.flags.sim) {
         const { simMain } = await import('../daemon/sim-main.js');
         return simMain({

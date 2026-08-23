@@ -1,0 +1,28 @@
+# mcAI plugin configuration.
+#
+# The defaults work. Nothing here has to be edited to get started — set up the
+# AI provider at http://localhost:8765 or with /mcai setup.
+
+# Shared secret between this plugin and the engine, both on loopback.
+# Generated on first start. Changing it is only useful if you run the engine
+# yourself; the plugin then needs the same value in MCAI_BRIDGE_TOKEN.
+token: ''
+
+# The world mcAI builds in. Empty means the server's first world.
+world: ''
+
+# The engine talks to the plugin here, and the dashboard is served here.
+# Change these if something else on the machine already uses the ports.
+bridge-port: 8766
+dashboard-port: 8765
+
+# Start and supervise the engine automatically. Turn this off to run it
+# yourself — the log prints the exact command when you do.
+auto-start-engine: true
+
+# Where the engine lives. Empty means plugins/mcAI/engine.
+engine-path: ''
+
+# Path to the Node executable. Empty means look on PATH and in the usual
+# places. Set it if your server runs with a minimal PATH.
+node-path: ''

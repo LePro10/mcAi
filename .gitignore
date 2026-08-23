@@ -7,6 +7,9 @@ node_modules/
 dist/
 *.tsbuildinfo
 
+# Plugin build output (the jar is a release artifact, not a source file)
+plugin/build/
+
 # Local runtime state
 *.log
 data/
