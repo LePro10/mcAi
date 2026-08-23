@@ -16,12 +16,12 @@ landing page get far less reach than something people can watch in the feed.
 
 **Title**
 
-> I made it so you can type "!build a huge castle" in chat and it actually
-> builds one, fitted to your terrain
+> I made a plugin where you type "/mcai build a huge castle" in chat and it
+> actually builds one, fitted to your terrain
 
 *(Alternatives, pick by what the clip shows: "Typed one sentence in chat, got a
 34,000-block castle" / "Chat command → castle. It reads the terrain and the
-biome first.")*
+biome first." / "One jar in plugins/, then type what you want in chat")*
 
 **Body**
 
@@ -40,14 +40,16 @@ biome first.")*
 > 1,184 blocks ships as four commands instead of 1,184. That's why it's fast and
 > why it doesn't cost much.
 >
-> `!undo` puts everything back exactly how it was, including block states, so
-> you can try things without wrecking your world.
+> `/mcai undo` puts everything back exactly how it was, including block states,
+> so you can try things without wrecking your world.
 >
-> Fifteen structures build instantly with no AI at all (`!build lighthouse`,
-> `!build windmill`) — those are free and work with no API key.
+> Fifteen structures build instantly with no AI at all (`/mcai build lighthouse`,
+> `/mcai build windmill`) — those are free and need no API key, so you can
+> install it and immediately have something working.
 >
-> Works on any Paper/Spigot/Fabric/vanilla server 1.20+, needs RCON on. Open
-> source, MIT.
+> Install is one jar in `plugins/` and that's genuinely it — no RCON, no
+> password to set, no `server.properties` edit, no bot account, server stays in
+> online mode. Paper/Spigot/Bukkit 1.20+. Open source, MIT.
 >
 > You can try it without installing Minecraft at all:
 > `git clone`, `npm install`, `./mcai serve --sim` — a dashboard with a

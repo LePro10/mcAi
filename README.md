@@ -5,10 +5,10 @@
 **Say what you want. Watch it get built.**
 
 A natural-language builder for Minecraft. Stand somewhere, type
-`!build a huge castle on the hill`, and a castle appears — fitted to your
+`/mcai build a huge castle on the hill`, and a castle appears — fitted to your
 terrain, matched to your biome, in seconds, for fractions of a cent.
 
-Clone it, run one command, and it works — no account, no login, no key required
+Install is one jar in `plugins/`. No account, no login, and no API key required
 to start.
 
 </div>
@@ -18,11 +18,13 @@ to start.
 ## What it does
 
 ```
-you:  !build a huge medieval castle
+you:  /mcai build a huge medieval castle
 mcAI: Building castle: 41,564 blocks, 67×52×67, 3,175 commands.
-mcAI: Done. 44,611 blocks changed · $0.0031. !undo if you hate it.
+mcAI: Done. 44,611 blocks changed · $0.0031. /mcai undo if you hate it.
 ```
 
+- **One jar.** Drop it in `plugins/`, start the server, build. The engine
+  ships inside it.
 - **Terrain-aware.** Foundations follow the ground instead of floating over it
   or burying themselves in a hill.
 - **Biome-aware.** A house in a taiga is spruce and turf; the same request in a
@@ -37,6 +39,33 @@ mcAI: Done. 44,611 blocks changed · $0.0031. !undo if you hate it.
 
 ## Get it running
 
+### On a Minecraft server — one jar
+
+Put **`mcAI.jar`** in your server's `plugins/` folder and start the server.
+
+```
+/mcai build a huge medieval castle on the hill
+/mcai undo
+```
+
+That is the entire install. Paper, Spigot or Bukkit, 1.20+. No RCON, no
+`server.properties` edit, no password to invent, no bot account, and the server
+stays in online mode.
+
+The jar carries the build engine inside it and unpacks it on first start, so
+there is no second download and no `npm install`. The one thing it cannot bring
+along is [Node 20+](https://nodejs.org) — install that on the machine, and mcAI
+says so clearly in the console if you forget.
+
+Fifteen structures build immediately, with no AI connected and no account.
+For anything else, `/mcai setup` points you at the dashboard: pick one of
+fourteen providers, paste a key, Save.
+
+See [`plugin/README.md`](plugin/README.md) for commands, permissions and
+configuration, or `cd plugin && ./build.sh` to build the jar yourself.
+
+### On your own machine — no Minecraft at all
+
 You need [Node 20+](https://nodejs.org). Nothing else.
 
 ```sh
@@ -46,9 +75,9 @@ npm install          # installs and builds
 ./mcai serve --sim   # dashboard at http://127.0.0.1:8765
 ```
 
-That is a complete, working mcAI with a simulated world. Click a structure,
-watch it build, look at the render. **No Minecraft, no Java, no API key, no
-account.**
+A complete, working mcAI against a simulated world. Click a structure, watch it
+build, look at the render. **No Minecraft, no Java, no API key, no account.**
+This is also how the builder is developed and tested.
 
 > `npx mcai` does not work yet — the package is not on npm. Clone it.
 > Windows: use `node dist/cli/main.js` in place of `./mcai`.
@@ -91,10 +120,14 @@ step.
 There is no mcAI account and no login. Your key goes to the provider you chose
 and nowhere else.
 
-### With a real Minecraft server
+### Without the plugin, over RCON
 
-Any Paper, Spigot, Fabric or vanilla server, 1.20+. Enable RCON in
-`server.properties`:
+The plugin is the better path on any server that can run one: it is faster
+(batched commands, server-side heightmaps) and there is nothing to configure.
+RCON is still there for vanilla and Fabric servers, where a Bukkit plugin
+cannot go.
+
+Enable RCON in `server.properties`:
 
 ```properties
 enable-rcon=true
@@ -116,6 +149,9 @@ key, the compiler, the build pipeline and the server connection, and tells you
 which one failed.
 
 ## In-game commands
+
+With the plugin, these are slash commands — `/mcai build`, `/mcai undo`. Over
+RCON the bot listens for `!` in chat instead.
 
 | command | what it does |
 | --- | --- |

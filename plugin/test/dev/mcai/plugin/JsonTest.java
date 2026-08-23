@@ -26,6 +26,7 @@ public final class JsonTest {
     roundTripsAPrompt();
     commandArraysParse();
     coordinateArraysParse();
+    namesReadOutOfObjectArrays();
 
     if (failures > 0) {
       System.out.println(failures + " failed");
@@ -132,6 +133,33 @@ public final class JsonTest {
     eq("12,90,12", join(max), "positive coordinates");
     eq("", join(Json.intArray("{\"min\":[]}", "min")), "an empty array");
     eq(null, join(Json.intArray("{\"a\":1}", "min")), "a missing array is null");
+  }
+
+  /** What /mcai list and /mcai style read: names out of an array of objects. */
+  private static void namesReadOutOfObjectArrays() {
+    String body = "{\"styles\":["
+        + "{\"name\":\"medieval\",\"description\":\"Stone footings, timber walls.\"},"
+        + "{\"name\":\"gothic\",\"description\":\"Tall, thin, pointed.\"},"
+        + "{\"name\":\"japanese\",\"description\":\"Wide eaves, dark timber.\"}"
+        + "],\"count\":3}";
+    eq("medieval,gothic,japanese", String.join(",", Json.values(body, "styles", "name")),
+        "three style names in order");
+
+    // A description containing a brace or a bracket must not end the scan.
+    String tricky = "{\"prefabs\":["
+        + "{\"name\":\"castle\",\"summary\":\"try {\\\"size\\\":61} for a big one\"},"
+        + "{\"name\":\"cottage\",\"summary\":\"a] bracket\"}"
+        + "]}";
+    eq("castle,cottage", String.join(",", Json.values(tricky, "prefabs", "name")),
+        "braces and brackets inside strings do not end the array");
+
+    eq("", String.join(",", Json.values("{\"styles\":[]}", "styles", "name")), "an empty array");
+    eq(null, Json.values("{\"a\":1}", "styles", "name") == null ? null : "not null",
+        "a missing array is null, so callers can tell it apart from an empty one");
+
+    // Objects that lack the field are skipped rather than adding a null.
+    String partial = "{\"styles\":[{\"name\":\"a\"},{\"description\":\"no name\"},{\"name\":\"b\"}]}";
+    eq("a,b", String.join(",", Json.values(partial, "styles", "name")), "objects without the field are skipped");
   }
 
   private static String join(int[] values) {

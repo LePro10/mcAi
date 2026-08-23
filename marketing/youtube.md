@@ -10,7 +10,7 @@ before the title card most channels put first.
 - This Minecraft AI doesn't place blocks. It writes a compiler's input.
 - Type it in chat. Watch it get built.
 
-**Thumbnail** — split down the middle. Left: the chat line `!build a huge
+**Thumbnail** — split down the middle. Left: the chat line `/mcai build a huge
 castle` in Minecraft's font on a dark blur. Right: the finished castle at
 golden hour, wide angle, from slightly below so it towers. No face, no arrows,
 no red circles. One number burned in the corner: **41,564 blocks**.
@@ -25,11 +25,12 @@ no red circles. One number burned in the corner: **41,564 blocks**.
 > everything it can. That's why a 41,000-block castle takes two seconds and
 > costs a third of a cent.
 >
-> Try it without installing Minecraft: git clone, npm install, ./mcai serve --sim
+> Install: one jar in plugins/. Or try it with no Minecraft at all:
+> git clone, npm install, ./mcai serve --sim
 > Code: [github]
 >
 > 0:00 One sentence, one castle
-> 0:35 Setting it up
+> 0:35 Installing it (one jar)
 > 1:10 It reads the terrain first
 > 2:00 Why it isn't slow
 > 3:20 Undo, styles, your own structures
@@ -43,7 +44,7 @@ no red circles. One number burned in the corner: **41,564 blocks**.
 ### 0:00 — Cold open. No intro.
 
 **Screen** — In-game, first person, standing on a hillside at dawn. Chat is
-open. You type `!build a huge castle` and press enter, on camera.
+open. You type `/mcai build a huge castle` and press enter, on camera.
 
 > *(as you type)* Watch this.
 
@@ -65,19 +66,21 @@ the battlements. One continuous shot, no cuts, so nobody thinks it's staged.
 
 ### 0:35 — Setup
 
-**Screen** — Terminal, side by side with `server.properties` open.
+**Screen** — A file manager, dragging one jar into `plugins/`. Then the server
+console starting. Nothing else on screen. Do it in real time — the whole point
+is that there is nothing to cut away from.
 
-> Three lines in server.properties. Turn RCON on, pick a password.
+> One jar, into plugins. Start the server. That's the install.
 
-**Screen** — Type it live:
-```
-export RCON_PASSWORD=whatever
-./mcai setup     # pick a provider
-./mcai serve
-```
+**Screen** — Straight into the game, type `/mcai build lighthouse`. It builds.
 
-> Pick whichever AI you want — there are fourteen, including local ones that
-> cost nothing. Or skip it entirely; fifteen structures build with no AI at all.
+> No API key, no account, nothing configured yet — fifteen structures work
+> immediately. For anything you can imagine, you connect an AI.
+
+**Screen** — `/mcai setup` in chat, then the dashboard: click a provider, paste
+a key, Save, green tick.
+
+> Fourteen providers. Two of them run on your own machine and cost nothing.
 
 **Screen** — Browser at `localhost:8765`, dashboard visible.
 
@@ -93,7 +96,7 @@ and renders.
 
 ### 1:10 — Terrain and biome
 
-**Screen** — Fly to a steep hillside. `!build a watchtower`.
+**Screen** — Fly to a steep hillside. `/mcai build a watchtower`.
 
 > Before it builds anything, it looks at where you're standing. Ground height,
 > slope, biome, what's nearby.
@@ -111,7 +114,7 @@ stepping down the slope.
 > Foundations follow the ground. That's the difference between a build that
 > looks placed and one that looks like it was dropped in.
 
-**Screen** — Fly to a desert. Same command: `!build a watchtower`. Different
+**Screen** — Fly to a desert. Same command: `/mcai build a watchtower`. Different
 result — sandstone, flat roof.
 
 > Same words. Different biome. Different building.
@@ -152,7 +155,7 @@ Reuse the animation from the site if that's easier.
 
 ### 3:20 — Undo, styles, your own structures
 
-**Screen** — Back in game, in front of the castle. `!undo`.
+**Screen** — Back in game, in front of the castle. `/mcai undo`.
 
 > If you don't like it — undo. It snapshots the whole region before it builds,
 > so this is exact. Block states and all.
@@ -161,8 +164,8 @@ Reuse the animation from the site if that's easier.
 
 > Which means you can just try things.
 
-**Screen** — `!style gothic`, then `!build a keep`. Then `!style japanese`,
-`!build a keep`.
+**Screen** — `/mcai style gothic`, then `/mcai build a keep`. Then
+`/mcai style japanese`, `/mcai build a keep`.
 
 > Sixteen styles. Same structure, different world.
 

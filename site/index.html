@@ -398,14 +398,14 @@ footer p { font-family: var(--mono); font-size: 12.5px; color: var(--text-dim); 
     </p>
 
     <div class="cta-row">
-      <span class="cmd"><span class="prompt">$</span> git clone … &amp;&amp; npm install &amp;&amp; ./mcai serve --sim</span>
-      <a class="btn-ghost" href="#install">No Minecraft, no API key needed →</a>
+      <span class="cmd"><span class="prompt">/</span>mcai build a huge castle on the hill</span>
+      <a class="btn-ghost" href="#install">One jar in plugins/. No API key needed →</a>
     </div>
 
     <div class="stage">
       <div class="stage-in">
         <div class="stage-label"><span>Input</span><span id="in-size">—</span></div>
-        <p class="say">&gt; <b>!build a huge castle</b></p>
+        <p class="say">&gt; <b>/mcai build a huge castle</b></p>
         <div class="stage-label"><span>Blueprint the model writes</span></div>
         <pre class="bp" id="bp"></pre>
       </div>
@@ -473,6 +473,17 @@ footer p { font-family: var(--mono); font-size: 12.5px; color: var(--text-dim); 
           </p>
         </div>
       </div>
+      <div class="step">
+        <div>
+          <h3>The plugin lands it in one pass</h3>
+          <p>
+            All two thousand commands go over in a single request and run
+            server-side in one pass — not two thousand round trips. Terrain comes
+            back the same way: one heightmap read, straight from the server's own,
+            instead of probing columns block by block.
+          </p>
+        </div>
+      </div>
     </div>
   </div>
 </section>
@@ -528,7 +539,7 @@ footer p { font-family: var(--mono); font-size: 12.5px; color: var(--text-dim); 
           <li>~4,000 tokens, most of them cached</li>
           <li>Commands pipelined in batches</li>
           <li>Footprint <b>forceloaded</b>, every reply checked</li>
-          <li><b>!undo</b> restores the region exactly</li>
+          <li><b>/mcai undo</b> restores the region exactly</li>
         </ul>
       </div>
     </div>
@@ -558,7 +569,7 @@ footer p { font-family: var(--mono); font-size: 12.5px; color: var(--text-dim); 
       <p class="eyebrow">Built in</p>
       <h2>Fifteen structures that need no model at all.</h2>
       <p class="lede">
-        <code style="font-family:var(--mono);font-size:.9em">!build lighthouse</code> matches a library
+        <code style="font-family:var(--mono);font-size:.9em">/mcai build lighthouse</code> matches a library
         structure and builds instantly, for nothing. Everything else goes to the model.
       </p>
     </div>
@@ -629,41 +640,44 @@ footer p { font-family: var(--mono); font-size: 12.5px; color: var(--text-dim); 
   <div class="wrap stack-lg">
     <div class="stack">
       <p class="eyebrow">Get it</p>
-      <h2>Two minutes, or zero if you just want to look.</h2>
+      <h2>One jar. That is the whole install.</h2>
     </div>
 
     <div class="install">
       <div class="col">
-        <h3>Try it with no server</h3>
+        <h3>On your server</h3>
+        <div class="code" style="margin-top:14px">
+<span class="c"># 1. put mcAI.jar in plugins/</span>
+<span class="c"># 2. start the server</span>
+<span class="c"># 3. there is no step 3</span>
+
+<b>/mcai build</b> a huge castle on the hill
+<b>/mcai undo</b></div>
+        <p style="margin-top:16px;color:var(--text-dim);font-size:15px">
+          Paper, Spigot or Bukkit, 1.20+. No RCON, no password to invent, no
+          <code style="font-family:var(--mono);font-size:.9em">server.properties</code>
+          edit, no bot account — your server stays in online mode. The build engine
+          ships <em>inside</em> the jar and unpacks itself, so there is no second
+          download. Needs Node 20+ on the machine; mcAI says so in the console if
+          it is missing.
+        </p>
+      </div>
+
+      <div class="col">
+        <h3>Or try it with no server at all</h3>
         <div class="code" style="margin-top:14px">
 <span class="c"># clone, install, run</span>
 <b>git clone</b> https://github.com/LePro10/mcAi
 <b>cd</b> mcAi &amp;&amp; <b>npm install</b>
 <b>./mcai serve --sim</b>
 
-<span class="c"># or in a container, with a server</span>
+<span class="c"># or a whole server in a container</span>
 <b>docker compose up -d</b></div>
         <p style="margin-top:16px;color:var(--text-dim);font-size:15px">
-          Node 20+ and nothing else. No account, no login, no API key needed to
-          start — the fifteen built-in structures build without any AI at all.
-        </p>
-      </div>
-
-      <div class="col">
-        <h3>Run it on your server</h3>
-        <div class="code" style="margin-top:14px">
-<span class="c"># server.properties</span>
-enable-rcon=<b>true</b>
-rcon.password=<b>pick-something</b>
-
-<span class="c"># then</span>
-<b>export</b> RCON_PASSWORD=pick-something
-<b>./mcai setup</b>   <span class="c"># pick any AI provider</span>
-<b>./mcai serve</b></div>
-        <p style="margin-top:16px;color:var(--text-dim);font-size:15px">
-          Paper, Spigot, Fabric or vanilla, 1.20+. Fourteen AI providers to choose
-          from — Anthropic, OpenAI, Gemini, OpenRouter, DeepSeek, Groq, Mistral,
-          xAI, and local Ollama or LM Studio, which cost nothing at all.
+          A simulated world, a dashboard and real renders — no Minecraft, no Java,
+          no account. Fifteen structures build with no AI at all; for everything
+          else, pick from fourteen providers, including Ollama and LM Studio,
+          which run on your own machine and cost nothing.
         </p>
       </div>
     </div>

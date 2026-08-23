@@ -117,6 +117,40 @@ final class Json {
     return out;
   }
 
+  /**
+   * One field out of every object in a top-level array.
+   *
+   * `values(body, "styles", "name")` on `{"styles":[{"name":"gothic",…},…]}`
+   * gives the style names. Enough to list what the engine offers without
+   * modelling its responses.
+   */
+  static List<String> values(String json, String array, String field) {
+    int start = arrayStart(json, array);
+    if (start < 0) return null;
+    List<String> out = new ArrayList<>();
+
+    int depth = 0, objectStart = -1;
+    boolean inString = false;
+    for (int i = start; i < json.length(); i++) {
+      char c = json.charAt(i);
+      if (inString) {
+        if (c == '\\') i++;
+        else if (c == '"') inString = false;
+        continue;
+      }
+      if (c == '"') { inString = true; continue; }
+      if (c == '{') { if (depth++ == 0) objectStart = i; }
+      else if (c == '}') {
+        if (--depth == 0 && objectStart >= 0) {
+          String value = field(json.substring(objectStart, i + 1), field);
+          if (value != null) out.add(value);
+          objectStart = -1;
+        }
+      } else if (c == ']' && depth == 0) break;
+    }
+    return out;
+  }
+
   // ── Scanning ────────────────────────────────────────────────────────────
 
   private static int arrayStart(String json, String name) {

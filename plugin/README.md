@@ -32,6 +32,9 @@ with the address to get it, rather than failing later with something cryptic.
 /mcai undo
 ```
 
+Tab completion knows the structures and styles the engine has loaded, including
+any you added yourself as JSON files.
+
 Builds land where you are standing, facing the way you are looking, fitted to
 the ground you are standing on.
 
@@ -40,6 +43,8 @@ the ground you are standing on.
 | `/mcai build <what>` | build it where you stand |
 | `/mcai undo` | put the last build back, exactly |
 | `/mcai cancel` | stop the build in progress |
+| `/mcai list` | the structures that need no AI |
+| `/mcai style <name>` | force a style, or `auto` to match the biome |
 | `/mcai status` | engine, world and AI at a glance |
 | `/mcai setup` | connect an AI provider |
 | `/mcai dashboard` | the web dashboard, with an access link |

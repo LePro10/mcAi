@@ -187,6 +187,15 @@ public final class McAiPlugin extends JavaPlugin implements CommandExecutor, Tab
         showStatus(sender);
         return true;
 
+      case "style":
+        setStyle(sender, join(args, 1));
+        return true;
+
+      case "list":
+      case "structures":
+        showLibrary(sender);
+        return true;
+
       case "setup":
       case "ai":
         showSetup(sender);
@@ -291,6 +300,72 @@ public final class McAiPlugin extends JavaPlugin implements CommandExecutor, Tab
     });
   }
 
+  /**
+   * `/mcai style` with no argument lists what is available; with one, sets it.
+   *
+   * The list is fetched rather than hard-coded, because dropping a JSON file
+   * into the engine's styles/ folder adds a style without touching this jar.
+   */
+  private void setStyle(CommandSender sender, String name) {
+    final String who = sender.getName();
+    Bukkit.getScheduler().runTaskAsynchronously(this, () -> {
+      if (name.isEmpty()) {
+        Http.Response res = Http.get("http://127.0.0.1:" + dashboardPort() + "/api/styles", token, 5000);
+        List<String> names = res.status == 200 ? Json.values(res.body, "styles", "name") : null;
+        reply(who, target -> {
+          if (names == null || names.isEmpty()) {
+            target.sendMessage(Chat.error("Could not read the style list. /mcai status"));
+            return;
+          }
+          target.sendMessage(Chat.heading("Styles"));
+          target.sendMessage(Chat.dim("  " + String.join(", ", names)));
+          target.sendMessage(Chat.cmd("/mcai style auto", "match the biome (default)"));
+        });
+        return;
+      }
+
+      String body = "{\"style\":" + ("auto".equalsIgnoreCase(name) ? "null" : Json.string(name)) + "}";
+      Http.Response res = Http.postJson(
+          "http://127.0.0.1:" + dashboardPort() + "/api/style", body, token, 10_000);
+      reply(who, target -> {
+        if (res.status == 200) {
+          String now = Json.field(res.body, "style");
+          target.sendMessage(Chat.ok("Style: " + (now == null ? "auto — matched to the biome" : now)));
+        } else {
+          String error = Json.field(res.body, "error");
+          target.sendMessage(Chat.error(error != null ? error : "Could not set the style."));
+        }
+      });
+    });
+  }
+
+  /** The structures that build with no AI connected. */
+  private void showLibrary(CommandSender sender) {
+    final String who = sender.getName();
+    Bukkit.getScheduler().runTaskAsynchronously(this, () -> {
+      Http.Response res = Http.get("http://127.0.0.1:" + dashboardPort() + "/api/prefabs", token, 5000);
+      List<String> names = res.status == 200 ? Json.values(res.body, "prefabs", "name") : null;
+      reply(who, target -> {
+        if (names == null || names.isEmpty()) {
+          target.sendMessage(Chat.error("Could not read the structure list. /mcai status"));
+          return;
+        }
+        target.sendMessage(Chat.heading(names.size() + " structures, no AI needed"));
+        target.sendMessage(Chat.dim("  " + String.join(", ", names)));
+        target.sendMessage(Chat.cmd("/mcai build " + names.get(0), "try one"));
+      });
+    });
+  }
+
+  /** Run something on the main thread, addressed to whoever asked. */
+  private void reply(String who, java.util.function.Consumer<CommandSender> what) {
+    Bukkit.getScheduler().runTask(this, () -> {
+      CommandSender target = Bukkit.getPlayerExact(who);
+      if (target == null) target = Bukkit.getConsoleSender();
+      what.accept(target);
+    });
+  }
+
   private void showSetup(CommandSender sender) {
     sender.sendMessage(Chat.heading("Connect an AI"));
     sender.sendMessage(Chat.dim("mcAI builds fifteen structures with no AI at all —"));
@@ -308,6 +383,8 @@ public final class McAiPlugin extends JavaPlugin implements CommandExecutor, Tab
     sender.sendMessage(Chat.cmd("/mcai build <what>", "build it where you stand"));
     sender.sendMessage(Chat.cmd("/mcai undo", "put the last build back"));
     sender.sendMessage(Chat.cmd("/mcai cancel", "stop the build in progress"));
+    sender.sendMessage(Chat.cmd("/mcai list", "structures that need no AI"));
+    sender.sendMessage(Chat.cmd("/mcai style <name>", "force a style, or auto"));
     sender.sendMessage(Chat.cmd("/mcai status", "engine, world and AI"));
     sender.sendMessage(Chat.cmd("/mcai setup", "connect an AI provider"));
     sender.sendMessage(Chat.cmd("/mcai dashboard", "open the web dashboard"));
@@ -316,11 +393,56 @@ public final class McAiPlugin extends JavaPlugin implements CommandExecutor, Tab
   @Override
   public List<String> onTabComplete(CommandSender sender, Command command, String alias, String[] args) {
     if (args.length == 1) {
-      return List.of("build", "undo", "cancel", "status", "setup", "dashboard", "reload");
+      return prefix(List.of("build", "undo", "cancel", "list", "style",
+          "status", "setup", "dashboard", "reload"), args[0]);
     }
-    if (args.length >= 2 && args[0].equalsIgnoreCase("build")) {
-      return List.of("a huge castle", "a wizard tower", "a japanese temple",
-          "a cottage with a garden", "lighthouse", "windmill", "bridge");
+    if (args.length == 2 && args[0].equalsIgnoreCase("style")) {
+      List<String> styles = new java.util.ArrayList<>(cached("styles", "/api/styles"));
+      styles.add(0, "auto");
+      return prefix(styles, args[1]);
+    }
+    if (args.length == 2 && args[0].equalsIgnoreCase("build")) {
+      // A structure name builds instantly with no AI, so completing those
+      // first is also the cheapest suggestion we can make.
+      List<String> options = new java.util.ArrayList<>(cached("prefabs", "/api/prefabs"));
+      options.addAll(List.of("a", "an", "the"));
+      return prefix(options, args[1]);
+    }
+    if (args.length > 2 && args[0].equalsIgnoreCase("build")) {
+      return List.of("huge", "small", "ruined", "medieval", "japanese", "castle",
+          "tower", "temple", "cottage", "bridge", "on the hill", "here");
+    }
+    return List.of();
+  }
+
+  private static List<String> prefix(List<String> options, String typed) {
+    if (typed == null || typed.isEmpty()) return options;
+    String lower = typed.toLowerCase();
+    List<String> out = new java.util.ArrayList<>();
+    for (String option : options) if (option.toLowerCase().startsWith(lower)) out.add(option);
+    return out;
+  }
+
+  /**
+   * Names from the engine, remembered between completions.
+   *
+   * Tab completion runs on the main thread and must return immediately, so a
+   * cold cache returns nothing and fills itself for next time — a keystroke
+   * later. Blocking here would stutter the server for everyone.
+   */
+  private final java.util.Map<String, List<String>> nameCache = new java.util.concurrent.ConcurrentHashMap<>();
+  private final java.util.Set<String> nameFetches = java.util.concurrent.ConcurrentHashMap.newKeySet();
+
+  private List<String> cached(String key, String route) {
+    List<String> known = nameCache.get(key);
+    if (known != null) return known;
+    if (nameFetches.add(key)) {
+      Bukkit.getScheduler().runTaskAsynchronously(this, () -> {
+        Http.Response res = Http.get("http://127.0.0.1:" + dashboardPort() + route, token, 5000);
+        List<String> names = res.status == 200 ? Json.values(res.body, key, "name") : null;
+        if (names != null && !names.isEmpty()) nameCache.put(key, names);
+        nameFetches.remove(key);
+      });
     }
     return List.of();
   }
