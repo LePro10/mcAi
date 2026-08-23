@@ -226,9 +226,35 @@ function connect() {
   es.onerror = () => { /* EventSource retries by itself */ };
 }
 
+/**
+ * Every request needs the token, and the only way to have it is to arrive by
+ * the link the server printed. Someone who types the address by hand gets a
+ * page where nothing works and nothing says why — so say why, once, and stop.
+ */
+function lockedOut() {
+  if (document.getElementById('locked')) return;
+  const panel = document.createElement('div');
+  panel.id = 'locked';
+  panel.style.cssText = 'position:fixed;inset:0;z-index:99;display:grid;place-items:center;'
+    + 'background:rgba(10,12,16,.94);padding:24px;text-align:center';
+  panel.innerHTML = `
+    <div style="max-width:460px">
+      <h2 style="margin:0 0 12px">This dashboard needs its access link</h2>
+      <p style="opacity:.75;line-height:1.6;margin:0 0 18px">
+        mcAI guards its API with a token, so the address alone will not open it.
+      </p>
+      <p style="opacity:.75;line-height:1.6;margin:0">
+        In game, run <code>/mcai dashboard</code> and click the link it gives you.
+        Running the engine yourself? The link is in its first few lines of output.
+      </p>
+    </div>`;
+  document.body.appendChild(panel);
+}
+
 async function refreshStatus() {
   try {
     const res = await api('/api/state');
+    if (res.status === 401) { lockedOut(); return; }
     if (!res.ok) return;
     const state = await res.json();
     lastState = state;

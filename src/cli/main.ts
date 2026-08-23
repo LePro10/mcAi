@@ -368,10 +368,19 @@ async function cmdDoctor(args: Args): Promise<void> {
 
   const host = process.env.MC_HOST ?? '127.0.0.1';
   const rconPort = Number(process.env.RCON_PORT ?? 25575);
+  // The plugin is the recommended path, so it is checked first: when it is
+  // running, a missing RCON is not a problem worth flagging.
+  const bridgeUrl = process.env.MCAI_BRIDGE_URL ?? 'http://127.0.0.1:8766';
+  const bridge = await probeHttp(`${bridgeUrl}/info`, process.env.MCAI_BRIDGE_TOKEN);
+  check('minecraft plugin', bridge.ok,
+    bridge.ok ? `${bridgeUrl} · ${bridge.detail}`
+      : `${bridgeUrl} ${bridge.detail} — drop mcAI.jar in plugins/ (see plugin/README.md)`);
+
   const reachable = await probeTcp(host, rconPort, 1500);
-  check('minecraft rcon', reachable,
+  check('minecraft rcon', reachable || bridge.ok,
     reachable ? `${host}:${rconPort} is accepting connections`
-      : `${host}:${rconPort} unreachable — start a server, or use "mcai sim"`);
+      : bridge.ok ? 'not needed — the plugin is running'
+        : `${host}:${rconPort} unreachable — start a server, or use "mcai sim"`);
 
   check('system prompt', true, `${fmt(buildSystemPrompt().length)} chars, cached per request`);
 
@@ -386,6 +395,25 @@ async function cmdDoctor(args: Args): Promise<void> {
   console.log();
   if (blocking.length) { console.log(C.red('  Something core is broken.\n')); process.exitCode = 1; }
   else console.log(C.green('  Ready to build.\n'));
+}
+
+/** Ask the plugin who it is. A 401 still proves it is there, and listening. */
+async function probeHttp(url: string, token?: string): Promise<{ ok: boolean; detail: string }> {
+  try {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 1500);
+    const res = await fetch(url, {
+      headers: token ? { 'x-mcai-token': token } : {},
+      signal: controller.signal,
+    });
+    clearTimeout(timer);
+    if (res.status === 401) return { ok: false, detail: 'reachable, but the token is wrong' };
+    if (!res.ok) return { ok: false, detail: `answered ${res.status}` };
+    const info = await res.json() as { minecraft?: string; world?: string; plugin?: string };
+    return { ok: true, detail: `${info.minecraft ?? 'server'} · world "${info.world ?? '?'}"` };
+  } catch {
+    return { ok: false, detail: 'unreachable' };
+  }
 }
 
 function probeTcp(host: string, port: number, timeout: number): Promise<boolean> {
