@@ -7,7 +7,8 @@
 // UPDATE_CLIENTS and then updates neighbours (updateNeighbourShapes + updateNeighboursOnBlockSet),
 // exactly what happens when a player places a block next to an existing one. So per case:
 //   1. set_blocks (no updates): target T at P (+ its partner half / context), P+d = air
-//      (or stone when the candidate support is air), a stone pedestal at P+2d;
+//      (or stone when the candidate support is air), a stone pedestal at P+2d (and under P+d for
+//      side supports, so the support itself does not pop);
 //   2. `setblock P+d <S>`  (S = candidate support; for S = air: replace the stone with air) →
 //      vanilla runs T.updateShape(d, S) / neighborChanged → T pops if it cannot survive;
 //   3. wait a few ticks (scheduled-tick rules: cactus, cane, chorus, dripstone, gravity …),
@@ -39,7 +40,7 @@ function setProps(s, kv) {
 // ------------------------------------------------------------------ candidate supports
 
 const GENERAL = [
-  'air', 'stone', 'glass', 'white_stained_glass', 'oak_leaves[persistent=true,waterlogged=false]', 'azalea_leaves[persistent=true,waterlogged=false]',
+  'air', 'stone', 'glass', 'white_stained_glass', 'oak_leaves[persistent=true,waterlogged=false]', 'azalea_leaves[persistent=true,waterlogged=false]', 'mangrove_leaves[persistent=true,waterlogged=false]',
   'smooth_stone_slab[type=bottom,waterlogged=false]', 'smooth_stone_slab[type=top,waterlogged=false]', 'smooth_stone_slab[type=double,waterlogged=false]',
   ...H.flatMap((f) => [`oak_stairs[facing=${f},half=bottom,shape=straight,waterlogged=false]`, `oak_stairs[facing=${f},half=top,shape=straight,waterlogged=false]`]),
   'oak_fence[east=false,north=false,south=false,waterlogged=false,west=false]', 'nether_brick_fence[east=false,north=false,south=false,waterlogged=false,west=false]',
@@ -223,6 +224,8 @@ export async function runSupport({ engine, reg, seed = 1, cases: maxCases, log =
       const scene = new Map();
       const put = (q, s) => scene.set(q.join(','), s);
       put(ped, 'minecraft:stone');
+      // keep the candidate support itself stable: for side supports a stone under it (diagonal to T)
+      if (v[1] === 0) put([S[0], S[1] - 1, S[2]], 'minecraft:stone');
       for (const [dx, dy, dz, s] of c.ctx) put([P[0] + dx, P[1] + dy, P[2] + dz], s);
       for (const [dx, dy, dz, s] of c.partner) put([P[0] + dx, P[1] + dy, P[2] + dz], s);
       put(P, c.t);
@@ -259,30 +262,85 @@ export async function runSupport({ engine, reg, seed = 1, cases: maxCases, log =
       else van = 'stays';
       let match = eng.startsWith('pops') ? van === 'pops' : eng === van;
       if (match && eng === 'trimmed' && engState !== v) match = false;
-      results.push({ ...c, vanilla: van, vanillaState: v, supportNow: sNow, engine: eng, engineState: engState, match });
+      // the candidate support broke by itself (cactus on stone, bamboo …) → no verdict possible
+      const unstable = c.s !== 'minecraft:air' && idOf(sNow ?? 'minecraft:air') !== idOf(c.s);
+      if (unstable) match = true;
+      results.push({ ...c, vanilla: van, vanillaState: v, supportNow: sNow, engine: eng, engineState: engState, match, unstable });
     }
     if (cmdFail) log(`    round ${start / per + 1}: ${cmdFail} setblock commands failed (e.g. ${placed.find((c) => c.cmdError)?.cmdError})`);
     log(`    round ${start / per + 1}: ${round.length} cases, ${results.slice(start).filter((x) => !x.match).length} mismatches`);
   }
 
+  // phase 2 — "mod placement": the same scenes placed in ONE set_blocks with updateShapes=true
+  // (exactly how mcAI builds) and nothing else. The mod's shape pass rejects id changes, but
+  // updateShape still schedules ticks (cactus, cane, chorus, dripstone, gravity …), so some
+  // unsupported blocks still break right after an mcAI build.
+  for (let start = 0; start < results.length; start += per) {
+    const round = results.slice(start, start + per);
+    const { x0, z0, y, pitch, cols, rows } = AREA;
+    const box = { min: [x0 - 2, y - 3, z0 - 2], max: [x0 + cols * pitch + 1, y + 3, z0 + rows * pitch + 1] };
+    const clear = new Batch();
+    for (let yy = box.min[1]; yy <= box.max[1]; yy++) for (let zz = box.min[2]; zz <= box.max[2]; zz++) for (let xx = box.min[0]; xx <= box.max[0]; xx++) clear.add(xx, yy, zz, 'minecraft:air');
+    await engine.setBlocks(clear, { updateShapes: false });
+    const b = new Batch();
+    for (const c of round) for (const [k2, st] of c.scene) { if (st === 'minecraft:air') continue; const [a, bb, cc] = k2.split(',').map(Number); b.add(a, bb, cc, st); }
+    await engine.setBlocks(b, { updateShapes: true });
+    await engine.waitTicks(8);
+    const vol = await engine.getBlocks(box);
+    for (const c of round) {
+      const v = vol.get(...c.P);
+      c.modPlace = c.s !== 'minecraft:air' && idOf(vol.get(...c.S) ?? 'minecraft:air') !== idOf(c.s) ? 'support-broke' : idOf(v) !== idOf(c.t) ? 'pops' : v !== c.t ? 'changed' : 'stays';
+      c.modPlaceState = v;
+    }
+  }
+  const modPops = new Map();
+  for (const x of results) {
+    if (x.modPlace !== 'pops') continue;
+    const k = x.fam + ' | ' + idOf(x.t).slice(10);
+    let g = modPops.get(k);
+    if (!g) modPops.set(k, (g = { fam: x.fam, target: idOf(x.t).slice(10), count: 0, of: results.filter((y) => y.t === x.t && y.fam === x.fam && y.modPlace !== 'support-broke').length, engineDrops: 0, vanillaPopsOnUpdate: 0, supports: [] }));
+    g.count++;
+    if (x.engine.startsWith('pops')) g.engineDrops++;
+    if (x.vanilla === 'pops') g.vanillaPopsOnUpdate++;
+    if (g.supports.length < 6) g.supports.push(famName(x.s));
+  }
+  const modPlacePops = [...modPops.values()].sort((a, b) => b.count - a.count);
+  log(`  mod placement (set_blocks updateShapes=true only): ${results.filter((x) => x.modPlace === 'pops').length} of ${results.length} targets broke by themselves`);
+  for (const g of modPlacePops) log(`    ${g.fam} ${g.target}: ${g.count}/${g.of} broke (engine drops ${g.engineDrops} of them), e.g. on ${g.supports.join(', ')}`);
+
   // group
   const groups = new Map();
   const famStats = {};
   for (const x of results) {
-    const fs = (famStats[x.fam] ??= { cases: 0, mismatches: 0 });
+    const fs = (famStats[x.fam] ??= { cases: 0, mismatches: 0, unstableSupport: 0 });
     fs.cases++;
+    if (x.unstable) fs.unstableSupport++;
     if (x.match) continue;
     fs.mismatches++;
-    const sig = `${x.fam} | ${x.d}: ${famName(x.s)} | engine ${x.engine}, vanilla ${x.vanilla}`;
+    const target = idOf(x.t).slice(10);
+    const sig = `${x.fam} ${target} | ${x.d}: ${famName(x.s)} | engine ${x.engine}, vanilla ${x.vanilla}`;
     let g = groups.get(sig);
-    if (!g) groups.set(sig, (g = { sig, fam: x.fam, dir: x.d, support: famName(x.s), engine: x.engine, vanilla: x.vanilla, count: 0, examples: [] }));
+    if (!g) groups.set(sig, (g = { sig, fam: x.fam, target, dir: x.d, support: famName(x.s), engine: x.engine, vanilla: x.vanilla, count: 0, examples: [] }));
     g.count++;
-    if (g.examples.length < 2) g.examples.push({ target: short(x.t), support: short(x.s), dir: x.d, pos: x.P, vanillaResult: short(x.vanillaState), supportAfter: short(x.supportNow), engineState: x.engineState && short(x.engineState),
+    if (g.examples.length < 1) g.examples.push({ target: short(x.t), support: short(x.s), dir: x.d, pos: x.P, vanillaResult: short(x.vanillaState), supportAfter: short(x.supportNow), engineState: x.engineState && short(x.engineState),
       scene: Object.fromEntries([...x.scene].map(([k, s]) => { const q = k.split(',').map(Number); return [`${q[0] - x.P[0]},${q[1] - x.P[1]},${q[2] - x.P[2]}`, short(s)]; })) });
   }
   const out = [...groups.values()].sort((a, b) => a.fam.localeCompare(b.fam) || b.count - a.count);
+  // compact per-target view: which supports the engine gets wrong in each direction
+  const byTarget = {};
+  for (const g of out) {
+    const t = (byTarget[`${g.fam}: ${g.target}`] ??= { engineKeepsVanillaPops: [], engineDropsVanillaKeeps: [], other: [] });
+    const list = g.engine === 'stays' && g.vanilla === 'pops' ? t.engineKeepsVanillaPops : g.engine.startsWith('pops') && g.vanilla === 'stays' ? t.engineDropsVanillaKeeps : t.other;
+    const label = list === t.other ? `${g.support} (engine ${g.engine}, vanilla ${g.vanilla})` : g.support;
+    if (!list.includes(label)) list.push(label);
+  }
   const mism = results.filter((x) => !x.match).length;
   log(`  support: ${results.length} cases, ${mism} mismatches in ${out.length} groups`);
-  for (const [fam, s] of Object.entries(famStats)) if (s.mismatches) log(`    ${fam.padEnd(32)} ${s.mismatches}/${s.cases}`);
-  return { cases: results.length, mismatches: mism, invalidPoolStates: invalid, families: famStats, groups: out };
+  for (const [fam, s] of Object.entries(famStats)) if (s.mismatches) log(`    ${fam.padEnd(32)} ${String(s.mismatches).padStart(4)}/${s.cases}`);
+  for (const [t, v] of Object.entries(byTarget)) {
+    const cut = (l) => (l.length > 8 ? `${l.slice(0, 8).join(', ')} … (+${l.length - 8})` : l.join(', '));
+    if (v.engineKeepsVanillaPops.length) log(`    ${t}: engine keeps / vanilla pops on ${cut(v.engineKeepsVanillaPops)}`);
+    if (v.engineDropsVanillaKeeps.length) log(`    ${t}: engine drops / vanilla keeps on ${cut(v.engineDropsVanillaKeeps)}`);
+  }
+  return { cases: results.length, mismatches: mism, invalidPoolStates: invalid, families: famStats, byTarget, modPlacePops, groups: out };
 }

@@ -315,16 +315,16 @@ export async function prepareWorld(engine, area) {
   const out = [];
   for (const [rule, value, def] of RULES) {
     const q = await engine.command(`gamerule ${rule}`);
-    const m = /:\s*(\S+)\s*$/.exec(q.output ?? '');
+    const m = /set to:?\s*(\S+)\s*$/.exec(q.output ?? '');
     if (!savedRules.has(rule)) savedRules.set(rule, m && m[1] !== value ? m[1] : def);
     const res = await engine.command(`gamerule ${rule} ${value}`);
-    out.push(`${rule} ${value}${res.ok ? '' : ` FAILED: ${res.output}`} (was ${m?.[1] ?? '?'})`);
+    out.push(`${rule} ${value}${res.ok || /already/.test(res.output) ? '' : ` FAILED: ${res.output}`} (was ${m?.[1] ?? '?'})`);
   }
-  for (const c of ['time set noon', 'weather clear']) { const res = await engine.command(c); if (!res.ok) out.push(`${c} FAILED: ${res.output}`); }
+  for (const c of ['time set noon', 'weather clear']) { const res = await engine.command(c); if (!res.ok && !/already/.test(res.output)) out.push(`${c} FAILED: ${res.output}`); }
   if (area) {
     forceloaded = area;
     const res = await engine.command(`forceload add ${area.x0} ${area.z0} ${area.x1} ${area.z1}`);
-    out.push(`forceload ${area.x0} ${area.z0} ${area.x1} ${area.z1}: ${res.ok ? 'ok' : res.output}`);
+    out.push(`forceload ${area.x0} ${area.z0} ${area.x1} ${area.z1}: ${res.ok || /already|No chunks were marked/.test(res.output) ? 'ok' : res.output}`);
   }
   return out;
 }

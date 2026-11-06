@@ -23,7 +23,7 @@ import { writeFileSync, existsSync, readFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { Registry } from '../engine/src/core/registry.ts';
-import { ROOT, LOCK, startServer, prepareWorld, attachServer } from './vanilla-diff/lib.mjs';
+import { ROOT, LOCK, TOOLS_HOME, startServer, prepareWorld, attachServer } from './vanilla-diff/lib.mjs';
 import { loadProbe } from './vanilla-diff/probe.mjs';
 import { runStatic } from './vanilla-diff/suite-static.mjs';
 import { runTransform } from './vanilla-diff/suite-transform.mjs';
@@ -50,21 +50,13 @@ const t0 = Date.now();
 console.log(`vanilla-diff: suites ${suites.join(', ')} (seed ${seed})`);
 const probe = loadProbe({ regenerate: flag('--regenerate-probe') });
 
-if (suites.includes('static')) {
-  console.log('\n# static');
-  report.suites.static = runStatic({ probe, reg: Registry.loadDefault() });
-}
-if (suites.includes('transform')) {
-  console.log('\n# transform');
-  report.suites.transform = runTransform({ probe, reg: Registry.loadDefault() });
-}
-
 const serverSuites = suites.filter((s) => s === 'connect' || s === 'support');
 if (serverSuites.length) {
   console.log('\n# test server');
   const srv = (await attachServer()) ?? (await startServer());
   try {
     const reg = new Registry(srv.hello.registry);
+    writeFileSync(join(TOOLS_HOME, 'registry-live.json'), JSON.stringify(srv.hello.registry));
     // forceload both test areas (connect: 16 × 16 scenes of pitch 8; support: BOUNDS) — < 256 chunks
     const area = { x0: Math.min(CONNECT_AREA.x0, SUPPORT_BOUNDS.x0) - 2, z0: Math.min(CONNECT_AREA.z0, SUPPORT_BOUNDS.z0) - 2,
       x1: Math.max(CONNECT_AREA.x0 + CONNECT_AREA.cols * CONNECT_AREA.pitch, SUPPORT_BOUNDS.x1) + 2, z1: SUPPORT_BOUNDS.z1 + 2 };
@@ -83,11 +75,29 @@ if (serverSuites.length) {
   }
 }
 
+// static + transform: both registries the engine uses — the bundled data file (offline/sim:
+// Registry.loadDefault, no `solid` hints) and the live one the mod sends in hello (with
+// solid = isCollisionShapeFullBlock hints; cached from the last server run)
+const liveFile = join(TOOLS_HOME, 'registry-live.json');
+const regs = [['offline', Registry.loadDefault()]];
+if (existsSync(liveFile)) regs.push(['live', new Registry(JSON.parse(readFileSync(liveFile, 'utf8')))]);
+if (suites.includes('static')) {
+  report.suites.static = {};
+  for (const [name, reg] of regs) {
+    console.log(`\n# static (${name} registry)`);
+    report.suites.static[name] = runStatic({ probe, reg });
+  }
+}
+if (suites.includes('transform')) {
+  console.log('\n# transform');
+  report.suites.transform = runTransform({ probe, reg: regs.at(-1)[1] });
+}
+
 report.seconds = Math.round((Date.now() - t0) / 1000);
 writeFileSync(reportFile, JSON.stringify(report, null, 1));
 console.log(`\nsummary (${report.seconds} s):`);
 const s = report.suites;
-if (s.static) console.log(`  static     ${s.static.states} states; ` + Object.entries(s.static.byCheck).map(([k, c]) => `${k}: ${c.blocks} blocks`).join(', '));
+for (const [name, st] of Object.entries(s.static ?? {})) console.log(`  static/${name.padEnd(7)} ${st.states} states; differing blocks: ` + Object.entries(st.byCheck).map(([k, c]) => `${k} ${c.blocks}`).join(', '));
 if (s.transform) console.log(`  transform  ${s.transform.cases} cases, ${s.transform.mismatches} mismatches in ${s.transform.families.length} families`);
 if (s.connect) console.log(`  connect    ${s.connect.scenes} scenes / ${s.connect.compared} positions: ${s.connect.mismatches} mismatches (${s.connect.groups.filter((g) => g.cat === 'connect').length} groups), ${s.connect.unmodelled} unmodelled vanilla changes`);
 if (s.support) console.log(`  support    ${s.support.cases} cases: ${s.support.mismatches} mismatches (${s.support.groups.length} groups)`);

@@ -8,7 +8,10 @@
 //    depends on the final state of the block above, so top-down = the vanilla fixed point);
 //  * the mod only accepts shape results that keep the block id, so every scene block that needs
 //    support gets it (redstone wire only on vanilla canSurviveOn blocks, doors as two halves …);
-//  * no fluids, no gravity blocks, leaves persistent, waterlogged=false (no scheduled-tick noise);
+//  * no fluids, no gravity blocks, leaves persistent, waterlogged=false, and no self-activating
+//    redstone (observers, daylight detectors, sculk sensors, TNT, pistons, dispensers): their
+//    scheduled ticks / vibrations cause real neighbour updates that cascade (wires popping off
+//    trapdoors that a powered wire opened …) and make runs non-deterministic;
 //  * blocks vanilla re-shapes that the engine does not model at all (snowy grass, chests, …) are
 //    reported separately ("unmodelled").
 import { solveConnections } from '../../engine/src/core/connect.ts';
@@ -58,8 +61,7 @@ export function makePools(reg, F) {
     () => 'stone', () => 'oak_planks', () => 'glass', (r) => `${r.pick(COLORS)}_stained_glass`, () => 'bookshelf', () => 'crafting_table',
     (r) => `${r.pick(F.leaves)}[persistent=true,waterlogged=false]`, () => 'pumpkin', (r) => `carved_pumpkin[facing=${r.pick(H)}]`, () => 'melon',
     (r) => `jack_o_lantern[facing=${r.pick(H)}]`, () => 'barrier[waterlogged=false]', (r) => `${r.pick(F.shulkers)}[facing=${r.pick(anyDir6)}]`,
-    () => 'ice', () => 'packed_ice', () => 'glowstone', () => 'sea_lantern', () => 'redstone_block', () => 'slime_block', () => 'honey_block', () => 'tnt',
-    () => 'spawner', () => 'beacon', () => 'mud', () => 'soul_sand', () => 'copper_grate[waterlogged=false]', () => 'mangrove_roots[waterlogged=false]',
+    () => 'ice', () => 'packed_ice', () => 'glowstone', () => 'sea_lantern', () => 'redstone_block', () => 'slime_block', () => 'honey_block',     () => 'spawner', () => 'beacon', () => 'mud', (r) => `piston[extended=false,facing=${r.pick(anyDir6)}]`, () => 'soul_sand', () => 'copper_grate[waterlogged=false]', () => 'mangrove_roots[waterlogged=false]',
     (r) => `chest[facing=${r.pick(H)},type=single,waterlogged=false]`, (r) => `ender_chest[facing=${r.pick(H)},waterlogged=false]`, (r) => `barrel[facing=${r.pick(anyDir6)},open=false]`,
     (r) => `${r.pick(F.slabs)}[type=${r.pick(['bottom', 'top', 'double'])},waterlogged=false]`,
     (r) => `${r.pick(F.stairs)}[facing=${r.pick(H)},half=${r.pick(['bottom', 'top'])},shape=straight,waterlogged=false]`,
@@ -68,20 +70,17 @@ export function makePools(reg, F) {
     (r) => `${r.pick(F.chains)}[axis=${r.pick(['x', 'y', 'z'])},waterlogged=false]`, (r) => `end_rod[facing=${r.pick(anyDir6)}]`,
     (r) => `${r.pick(F.rods)}[facing=${r.pick(anyDir6)},powered=false,waterlogged=false]`,
     (r) => `hopper[enabled=true,facing=${r.pick(['down', ...H])}]`, () => 'composter[level=0]', () => 'cauldron', () => 'water_cauldron[level=3]', () => 'farmland[moisture=0]', () => 'dirt_path',
-    (r) => `snow[layers=${1 + r.int(8)}]`, (r) => `anvil[facing=${r.pick(H)}]`, (r) => `bell[attachment=floor,facing=${r.pick(H)},powered=false]`,
+    (r) => `snow[layers=${1 + r.int(8)}]`, (r) => `bell[attachment=floor,facing=${r.pick(H)},powered=false]`,
     (r) => `grindstone[face=floor,facing=${r.pick(H)}]`, (r) => `lectern[facing=${r.pick(H)},has_book=false,powered=false]`, (r) => `stonecutter[facing=${r.pick(H)}]`,
-    () => 'enchanting_table', () => 'daylight_detector[inverted=false,power=0]', (r) => `${r.pick(F.carpets)}`, (r) => `${r.pick(F.plates)}`,
+    () => 'enchanting_table', (r) => `${r.pick(F.carpets)}`, (r) => `${r.pick(F.plates)}`,
     () => 'flower_pot', (r) => `player_head[powered=false,rotation=${r.int(16)}]`, (r) => `campfire[facing=${r.pick(H)},lit=false,signal_fire=false,waterlogged=false]`,
-    (r) => `piston[extended=false,facing=${r.pick(anyDir6)}]`, (r) => `observer[facing=${r.pick(anyDir6)},powered=false]`, (r) => `dispenser[facing=${r.pick(anyDir6)},triggered=false]`,
-    () => 'vault', () => 'trial_spawner', (r) => `decorated_pot[cracked=false,facing=${r.pick(H)},waterlogged=false]`, () => 'heavy_core[waterlogged=false]', () => 'azalea',
-    (r) => `oak_shelf[facing=${r.pick(H)},powered=false,side_chain=unconnected,waterlogged=false]`, () => 'scaffolding[bottom=false,distance=0,waterlogged=false]',
-    (r) => `${r.pick(F.fences)}`, (r) => `${r.pick(F.walls)}`, (r) => `${r.pick(F.panes)}`,
+        () => 'vault', () => 'trial_spawner', (r) => `decorated_pot[cracked=false,facing=${r.pick(H)},waterlogged=false]`, () => 'heavy_core[waterlogged=false]', () => 'azalea',
+    (r) => `oak_shelf[facing=${r.pick(H)},powered=false,side_chain=unconnected,waterlogged=false]`,     (r) => `${r.pick(F.fences)}`, (r) => `${r.pick(F.walls)}`, (r) => `${r.pick(F.panes)}`,
     (r) => `${r.pick(F.gates)}[facing=${r.pick(H)},in_wall=false,open=${r.pick(['true', 'false'])},powered=false]`,
     () => 'moss_carpet', () => 'pale_moss_carpet[bottom=true,east=none,north=none,south=none,west=none]', () => 'brewing_stand', () => 'cake[bites=0]',
-    () => 'conduit[waterlogged=false]', () => 'dried_kelp_block', () => 'target[power=0]', () => 'redstone_lamp[lit=false]', () => 'note_block',
-    (r) => `${r.pick(WOODS.filter((w) => w !== 'bamboo' && w !== 'crimson' && w !== 'warped'))}_log[axis=y]`, () => 'cobblestone', () => 'bricks', () => 'white_wool',
-    () => 'white_concrete', () => 'terracotta', () => 'sandstone', () => 'glass_pane', () => 'iron_bars', () => 'cactus[age=0]', () => 'chorus_flower[age=0]', () => 'powder_snow',
-    () => 'sculk_sensor[power=0,sculk_sensor_phase=inactive,waterlogged=false]', (r) => `repeater[delay=1,facing=${r.pick(H)},locked=false,powered=false]`,
+    () => 'conduit[waterlogged=false]', () => 'dried_kelp_block', () => 'target[power=0]', () => 'redstone_lamp[lit=false]',     (r) => `${r.pick(WOODS.filter((w) => w !== 'bamboo' && w !== 'crimson' && w !== 'warped'))}_log[axis=y]`, () => 'cobblestone', () => 'bricks', () => 'white_wool',
+    () => 'white_concrete', () => 'terracotta', () => 'sandstone', () => 'glass_pane', () => 'iron_bars', () => 'powder_snow',
+    (r) => `repeater[delay=1,facing=${r.pick(H)},locked=false,powered=false]`,
     (r) => `comparator[facing=${r.pick(H)},mode=compare,powered=false]`, () => 'end_portal_frame[eye=false,facing=north]', (r) => `${r.pick(COLORS)}_bed[facing=${r.pick(H)},occupied=false,part=foot]`,
     () => 'iron_block', () => 'smooth_stone', () => 'stripped_oak_wood[axis=y]', () => 'mushroom_stem[down=true,east=true,north=true,south=true,up=true,west=true]',
   ];
@@ -209,15 +208,15 @@ export function generators(reg, F, pools, probe) {
     redstone: (r) => {
       const c = cell();
       const floorPool = ['stone', 'glass', 'oak_planks', 'glowstone', 'redstone_lamp[lit=false]', 'slime_block', 'smooth_stone_slab[type=top,waterlogged=false]',
-        'smooth_stone_slab[type=bottom,waterlogged=false]', 'hopper[enabled=true,facing=down]', 'oak_leaves[persistent=true,waterlogged=false]', 'white_stained_glass', 'observer[facing=up,powered=false]',
-        'oak_stairs[facing=north,half=top,shape=straight,waterlogged=false]', 'oak_trapdoor[facing=north,half=top,open=false,powered=false,waterlogged=false]', 'piston[extended=false,facing=up]', 'tnt', 'redstone_block', 'ice', 'soul_sand'];
+        'smooth_stone_slab[type=bottom,waterlogged=false]', 'hopper[enabled=true,facing=down]', 'oak_leaves[persistent=true,waterlogged=false]', 'white_stained_glass', 'dirt_path', 'farmland[moisture=0]',
+        'oak_stairs[facing=north,half=top,shape=straight,waterlogged=false]', 'oak_trapdoor[facing=north,half=top,open=false,powered=false,waterlogged=false]', 'redstone_block', 'ice', 'soul_sand', 'mud', 'white_carpet'];
       const comps = [
         () => 'redstone_torch[lit=true]', (r2) => `redstone_wall_torch[facing=${r2.pick(H)},lit=true]`, (r2) => `repeater[delay=1,facing=${r2.pick(H)},locked=false,powered=false]`,
-        (r2) => `comparator[facing=${r2.pick(H)},mode=compare,powered=false]`, (r2) => `observer[facing=${r2.pick(['north', 'east', 'south', 'west', 'up', 'down'])},powered=false]`,
+        (r2) => `comparator[facing=${r2.pick(H)},mode=compare,powered=false]`,
         (r2) => `lever[face=floor,facing=${r2.pick(H)},powered=false]`, (r2) => `stone_button[face=floor,facing=${r2.pick(H)},powered=false]`, () => 'target[power=0]',
-        () => 'redstone_block', () => 'stone_pressure_plate[powered=false]', () => 'daylight_detector[inverted=false,power=0]', (r2) => `trapped_chest[facing=${r2.pick(H)},type=single,waterlogged=false]`,
-        (r2) => `tripwire_hook[attached=false,facing=${r2.pick(H)},powered=false]`, () => 'lectern[facing=north,has_book=false,powered=false]', () => 'sculk_sensor[power=0,sculk_sensor_phase=inactive,waterlogged=false]',
-        () => 'redstone_lamp[lit=false]', () => 'note_block', () => 'stone', () => 'glass', () => 'oak_slab[type=bottom,waterlogged=false]', (r2) => `oak_trapdoor[facing=${r2.pick(H)},half=bottom,open=false,powered=false,waterlogged=false]`,
+        () => 'redstone_block', () => 'stone_pressure_plate[powered=false]', (r2) => `trapped_chest[facing=${r2.pick(H)},type=single,waterlogged=false]`,
+        (r2) => `tripwire_hook[attached=false,facing=${r2.pick(H)},powered=false]`, () => 'lectern[facing=north,has_book=false,powered=false]',
+        () => 'redstone_lamp[lit=false]', () => 'stone', () => 'glass', () => 'oak_slab[type=bottom,waterlogged=false]', (r2) => `oak_trapdoor[facing=${r2.pick(H)},half=bottom,open=false,powered=false,waterlogged=false]`,
       ];
       const wireInit = (r2) => {
         const k = r2();
@@ -266,8 +265,6 @@ export function generators(reg, F, pools, probe) {
       c.set(2, 0, 4, `tripwire_hook[attached=false,facing=${r.pick(['east', 'west'])},powered=false]`);
       c.set(3, 0, 4, 'tripwire[attached=false,disarmed=false,east=false,north=false,powered=false,south=false,west=false]');
       c.set(4, 0, 4, 'tripwire[attached=false,disarmed=false,east=false,north=false,powered=false,south=false,west=false]');
-      c.set(1, 0, 4, 'chorus_plant[down=false,east=false,north=false,south=false,up=false,west=false]');
-      c.set(1, 1, 4, 'chorus_flower[age=0]');
       return c;
     },
   };
@@ -377,6 +374,7 @@ export async function runConnect({ engine, reg, probe, seed = 1, scenes = 240, l
   // 4. compare every scene position + the ground under each scene
   const groups = new Map();
   let compared = 0, mismatches = 0, unmodelled = 0, connectables = 0;
+  const perKind = {};
   const sceneOf = (x, z) => list[Math.floor((z - z0) / pitch) * cols + Math.floor((x - x0) / pitch)];
   const check = new Set([...scene.keys()]);
   for (const k of scene.keys()) { const [x, y, z] = k.split(',').map(Number); if (y === y0) check.add(`${x},${y0 - 1},${z}`); }
@@ -384,11 +382,16 @@ export async function runConnect({ engine, reg, probe, seed = 1, scenes = 240, l
     const [x, y, z] = k.split(',').map(Number);
     const input = get(x, y, z);
     const e = eng.get(k) ?? input;
-    const v = vol.get(x, y, z);
+    let v = vol.get(x, y, z);
     compared++;
+    // signal strength is not modelled (it only changes through neighbour updates/ticks)
+    if (v && idOf(v) === 'minecraft:redstone_wire' && idOf(e) === 'minecraft:redstone_wire') v = v.replace(/power=\d+/, /power=\d+/.exec(e)[0]);
     const kind = kindOf(conn, input);
     if (kind !== 'other') connectables++;
+    const pk = (perKind[kind] ??= { compared: 0, mismatches: 0 });
+    pk.compared++;
     if (v === e) continue;
+    pk.mismatches++;
     const nbr = {};
     for (const d of H) nbr[d] = (eng.get(`${x + OFF[d][0]},${y},${z + OFF[d][1]}`) ?? get(x + OFF[d][0], y, z + OFF[d][1]));
     nbr.up = eng.get(`${x},${y + 1},${z}`) ?? get(x, y + 1, z);
@@ -411,6 +414,7 @@ export async function runConnect({ engine, reg, probe, seed = 1, scenes = 240, l
   const out = [...groups.values()].sort((a, b) => (a.cat === b.cat ? b.count - a.count : a.cat === 'connect' ? -1 : 1));
   log(`  connect: ${scenes} scenes (${all.length} blocks, ${res.shapeUpdates} vanilla shape updates), ${compared} positions compared (${connectables} connectable)`);
   log(`    ${mismatches} connect mismatches in ${out.filter((g) => g.cat === 'connect').length} groups, ${unmodelled} vanilla shape changes of unmodelled blocks in ${out.filter((g) => g.cat === 'unmodelled').length} groups`);
+  log(`    per family: ${Object.entries(perKind).map(([k, v]) => `${k} ${v.mismatches}/${v.compared}`).join(', ')}`);
   for (const g of out.slice(0, 40)) log(`    [${g.cat}] ×${g.count} ${g.sig}`);
-  return { scenes, blocks: all.length, compared, connectables, mismatches, unmodelled, invalidPoolStates: invalid, groups: out, sceneFamilies: Object.fromEntries(names.map((n) => [n, list.filter((s) => s.fam === n).length])) };
+  return { scenes, blocks: all.length, compared, connectables, mismatches, unmodelled, perKind, invalidPoolStates: invalid, groups: out, sceneFamilies: Object.fromEntries(names.map((n) => [n, list.filter((s) => s.fam === n).length])) };
 }
