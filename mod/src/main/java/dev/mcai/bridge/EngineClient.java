@@ -88,6 +88,7 @@ public final class EngineClient {
 				ws.abort();
 			}
 		}
+		http.shutdownNow(); // one client (and selector thread) per server run: release it
 	}
 
 	/** Queue a text message. Silently dropped if not connected (the engine re-syncs on reconnect). */
@@ -169,6 +170,9 @@ public final class EngineClient {
 	}
 
 	private void dropped(WebSocket ws, String reason) {
+		if (!running) {
+			return; // stop() already cleaned up (and the IO executor may be shut down)
+		}
 		io.execute(() -> {
 			if (socket != ws) {
 				return;

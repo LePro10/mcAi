@@ -203,7 +203,13 @@ Block placement in the mod (`mod/…/world/PlaceBlocksTask.java`):
 * Phase 1 records the previous state (+ block-entity SNBT) of every position for `previous`, then
   places with flags `UPDATE_CLIENTS | UPDATE_SKIP_ALL_SIDEEFFECTS` (no neighbour updates, no drops,
   no onPlace side effects — sand does not fall, containers do not spill) and applies block-entity
-  SNBT. Invalid states / out-of-height positions become per-index `failed` entries.
+  SNBT. Invalid states / out-of-height positions / positions beyond the world limit (±30 000 000) become
+  per-index `failed` entries (boxes of `get_blocks`/`biomes`/`entities`/`heightmap` beyond it are rejected;
+  the mod never requests chunks outside the world). Guarded palette entries also fail per index:
+  command / structure / jigsaw / test blocks **with** block-entity data and any block entity whose data
+  contains `run_command` — unless it is an exact copy (state + NBT) of a block the mod read from the world
+  before (`previous` of an earlier `set_blocks`, `get_blocks` with `blockEntities`), so undo and
+  copy/paste keep working. Config `allowCommandBlocks: true` lifts this.
 * Phase 2 (`updateShapes`): vanilla `Block.updateFromNeighbourShapes` for every placed block, then
   for existing blocks adjacent to the batch. **A shape result is only accepted if it keeps the block
   id** — shape updates only change properties (fence/pane/wall connections, stair shapes,
@@ -315,7 +321,11 @@ group per player; `undo` reverts the whole job.
   edits outside are rejected with a clear error to the agent.
 * Block limit per job (default 2 000 000), per call (default 500 000).
 * Command allowlist (summon decorative entities, fillbiome, particle, playsound,
-  time/weather only if enabled). Never: op/deop/stop/ban/kick/execute-as-others/etc.
+  time/weather only if enabled). Never: op/deop/stop/ban/kick/execute-as-others/etc. The mod re-checks
+  it and also rejects non-decorative entity ids inside summon data (e.g. a TNT passenger).
+* The mod does not create command-capable blocks for the engine (command/structure blocks with data,
+  `run_command` signs, which run at game-master level for whoever clicks them) except as exact copies
+  of existing blocks (§5, `allowCommandBlocks`).
 * The script sandbox (`run_script`) runs in a separate Node child process per script with the
   permission model (`--permission`, fs read only for engine/src/core, no fs write / child
   processes / workers / network / addons) plus a `node:vm` context that only contains the

@@ -17,7 +17,25 @@ public final class McaiPayloads {
 	private static final int MAX_PROMPT = 2000;
 	private static final int MAX_TEXT = 1000;
 
+	/** Max problem args in a Status (the decoder reads at most this many). */
+	private static final int MAX_ARGS = 8;
+
 	private McaiPayloads() {
+	}
+
+	/**
+	 * Encoders never throw on over-long or null strings: a clientbound custom payload that fails
+	 * to encode is not skippable and would disconnect the player.
+	 */
+	static String clip(String s, int max) {
+		if (s == null) {
+			return "";
+		}
+		if (s.length() <= max) {
+			return s;
+		}
+		int end = Character.isHighSurrogate(s.charAt(max - 1)) ? max - 1 : max;
+		return s.substring(0, end);
 	}
 
 	private static <T extends CustomPacketPayload> CustomPacketPayload.Type<T> id(String path) {
@@ -31,11 +49,11 @@ public final class McaiPayloads {
 		public static final Type<BuildRequest> TYPE = id("build_request");
 		public static final StreamCodec<RegistryFriendlyByteBuf, BuildRequest> CODEC = CustomPacketPayload.codec(
 				(p, b) -> {
-					b.writeUtf(p.prompt, MAX_PROMPT);
-					b.writeUtf(p.style, 64);
-					b.writeUtf(p.size, 8);
+					b.writeUtf(clip(p.prompt, MAX_PROMPT), MAX_PROMPT);
+					b.writeUtf(clip(p.style, 64), 64);
+					b.writeUtf(clip(p.size, 8), 8);
 					b.writeBoolean(p.useSelection);
-					b.writeUtf(p.mode, 16);
+					b.writeUtf(clip(p.mode, 16), 16);
 				},
 				b -> new BuildRequest(b.readUtf(MAX_PROMPT), b.readUtf(64), b.readUtf(8), b.readBoolean(), b.readUtf(16)));
 
@@ -50,8 +68,8 @@ public final class McaiPayloads {
 		public static final Type<JobAction> TYPE = id("job_action");
 		public static final StreamCodec<RegistryFriendlyByteBuf, JobAction> CODEC = CustomPacketPayload.codec(
 				(p, b) -> {
-					b.writeUtf(p.action, 32);
-					b.writeUtf(p.arg, MAX_TEXT);
+					b.writeUtf(clip(p.action, 32), 32);
+					b.writeUtf(clip(p.arg, MAX_TEXT), MAX_TEXT);
 				},
 				b -> new JobAction(b.readUtf(32), b.readUtf(MAX_TEXT)));
 
@@ -74,19 +92,23 @@ public final class McaiPayloads {
 				(p, b) -> {
 					b.writeBoolean(p.engineConnected);
 					b.writeBoolean(p.permitted);
-					b.writeUtf(p.problemKey, 128);
-					b.writeVarInt(p.problemArgs.size());
-					p.problemArgs.forEach(a -> b.writeUtf(a, MAX_TEXT));
-					b.writeUtf(p.viewerUrl, 256);
-					b.writeUtf(p.activeJob, 128);
-					b.writeUtf(p.activeState, 32);
+					b.writeUtf(clip(p.problemKey, 128), 128);
+					List<String> args = p.problemArgs == null ? List.of() : p.problemArgs.subList(0, Math.min(MAX_ARGS, p.problemArgs.size()));
+					b.writeVarInt(args.size());
+					args.forEach(a -> b.writeUtf(clip(a, MAX_TEXT), MAX_TEXT));
+					b.writeUtf(clip(p.viewerUrl, 256), 256);
+					b.writeUtf(clip(p.activeJob, 128), 128);
+					b.writeUtf(clip(p.activeState, 32), 32);
 					b.writeVarInt(p.cooldownSeconds);
 				},
 				b -> {
 					boolean c = b.readBoolean();
 					boolean perm = b.readBoolean();
 					String key = b.readUtf(128);
-					int n = Math.min(b.readVarInt(), 8);
+					int n = b.readVarInt();
+					if (n < 0 || n > MAX_ARGS) {
+						throw new io.netty.handler.codec.DecoderException("mcai status: " + n + " problem args");
+					}
 					List<String> args = new ArrayList<>(n);
 					for (int i = 0; i < n; i++) {
 						args.add(b.readUtf(MAX_TEXT));
@@ -106,13 +128,13 @@ public final class McaiPayloads {
 		public static final Type<JobUpdate> TYPE = id("job_update");
 		public static final StreamCodec<RegistryFriendlyByteBuf, JobUpdate> CODEC = CustomPacketPayload.codec(
 				(p, b) -> {
-					b.writeUtf(p.jobId, 128);
-					b.writeUtf(p.state, 32);
+					b.writeUtf(clip(p.jobId, 128), 128);
+					b.writeUtf(clip(p.state, 32), 32);
 					b.writeFloat(p.progress);
-					b.writeUtf(p.stage, MAX_TEXT);
-					b.writeUtf(p.detail, MAX_TEXT);
+					b.writeUtf(clip(p.stage, MAX_TEXT), MAX_TEXT);
+					b.writeUtf(clip(p.detail, MAX_TEXT), MAX_TEXT);
 					b.writeDouble(p.costUsd);
-					b.writeUtf(p.prompt, MAX_PROMPT);
+					b.writeUtf(clip(p.prompt, MAX_PROMPT), MAX_PROMPT);
 				},
 				b -> new JobUpdate(b.readUtf(128), b.readUtf(32), b.readFloat(), b.readUtf(MAX_TEXT), b.readUtf(MAX_TEXT), b.readDouble(), b.readUtf(MAX_PROMPT)));
 
@@ -127,7 +149,7 @@ public final class McaiPayloads {
 		public static final Type<SelectionSync> TYPE = id("selection");
 		public static final StreamCodec<RegistryFriendlyByteBuf, SelectionSync> CODEC = CustomPacketPayload.codec(
 				(p, b) -> {
-					b.writeUtf(p.dimension == null ? "" : p.dimension, 128);
+					b.writeUtf(clip(p.dimension == null ? "" : p.dimension, 128), 128);
 					b.writeBoolean(p.pos1 != null);
 					if (p.pos1 != null) {
 						b.writeBlockPos(p.pos1);
@@ -156,8 +178,8 @@ public final class McaiPayloads {
 		public static final Type<JobArea> TYPE = id("job_area");
 		public static final StreamCodec<RegistryFriendlyByteBuf, JobArea> CODEC = CustomPacketPayload.codec(
 				(p, b) -> {
-					b.writeUtf(p.jobId, 128);
-					b.writeUtf(p.dimension, 128);
+					b.writeUtf(clip(p.jobId, 128), 128);
+					b.writeUtf(clip(p.dimension, 128), 128);
 					b.writeBoolean(p.selMin != null);
 					if (p.selMin != null) {
 						b.writeBlockPos(p.selMin);

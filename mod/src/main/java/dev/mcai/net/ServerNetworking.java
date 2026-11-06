@@ -21,6 +21,7 @@ public final class ServerNetworking {
 	private static final Set<String> ACTIONS = Set.of("cancel", "undo", "redo", "confirm", "reject", "reply", "status");
 	private static final long MIN_ACTION_INTERVAL_MS = 250;
 	private static final Map<UUID, Long> LAST_ACTION = new HashMap<>();
+	private static final Map<UUID, Long> LAST_BUILD = new HashMap<>();
 
 	private ServerNetworking() {
 	}
@@ -30,6 +31,9 @@ public final class ServerNetworking {
 		ServerPlayNetworking.registerGlobalReceiver(McaiPayloads.BuildRequest.TYPE, (payload, ctx) -> {
 			Bridge b = McaiMod.bridge();
 			ServerPlayer p = ctx.player();
+			if (throttled(LAST_BUILD, p)) {
+				return; // a (possibly forged) flood of requests: no log/chat spam
+			}
 			McaiMod.LOG.info("mcai: build request from {} ({} chars, style {}, size {}, selection {}, {})", p.getGameProfile().name(),
 					payload.prompt().length(), payload.style(), payload.size(), payload.useSelection(), payload.mode());
 			if (b == null) {
@@ -41,7 +45,7 @@ public final class ServerNetworking {
 		ServerPlayNetworking.registerGlobalReceiver(McaiPayloads.JobAction.TYPE, (payload, ctx) -> {
 			ServerPlayer p = ctx.player();
 			Bridge b = McaiMod.bridge();
-			if (b == null || !ACTIONS.contains(payload.action()) || throttled(p)) {
+			if (b == null || !ACTIONS.contains(payload.action()) || throttled(LAST_ACTION, p)) {
 				return;
 			}
 			if (payload.action().equals("status")) {
@@ -73,14 +77,18 @@ public final class ServerNetworking {
 			}
 			sendSelection(handler.player);
 		}));
-		ServerPlayConnectionEvents.DISCONNECT.register((handler, server) -> LAST_ACTION.remove(handler.player.getUUID()));
+		ServerPlayConnectionEvents.DISCONNECT.register((handler, server) -> {
+			LAST_ACTION.remove(handler.player.getUUID());
+			LAST_BUILD.remove(handler.player.getUUID());
+		});
 		ServerEntityLevelChangeEvents.AFTER_PLAYER_CHANGE_LEVEL.register((player, origin, destination) -> sendSelection(player));
 	}
 
-	private static boolean throttled(ServerPlayer p) {
+	/** Server thread (Fabric runs play payload receivers there). */
+	private static boolean throttled(Map<UUID, Long> last, ServerPlayer p) {
 		long now = System.currentTimeMillis();
-		Long last = LAST_ACTION.put(p.getUUID(), now);
-		return last != null && now - last < MIN_ACTION_INTERVAL_MS;
+		Long prev = last.put(p.getUUID(), now);
+		return prev != null && now - prev < MIN_ACTION_INTERVAL_MS;
 	}
 
 	/** Mod clients render the selection themselves. */

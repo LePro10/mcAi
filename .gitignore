@@ -1,18 +1,28 @@
-# Minecraft server runtime (worlds, logs, caches, plugins and downloaded jars)
+# Patterns are anchored (leading "/") wherever possible: an unanchored "server/" once hid
+# engine/src/server and an unanchored "build/" hid mod/src/main/java/dev/mcai/build.
+
+# Dedicated server created by `./mcai server` (worlds, logs, downloaded jars; MCAI_SERVER_DIR elsewhere)
 /server/
 
-# Node.js dependencies and build output
+# Dev test servers (tools/testserver.sh; MCAI_TESTSERVER_DIR=tools/testserver-<name> for a second one)
+/tools/testserver/
+/tools/testserver-*/
+
+# Node.js
 node_modules/
-**/node_modules/
-mcp-minecraft/dist/
 *.tsbuildinfo
 
-# Local bot/runtime files
+# Output of `./mcai build` (headless builds: renders, logs)
+/mcai-out/
+
+# Scratch renders and client game-test screenshots (tools/client-gametest.sh, engine render
+# experiments). Images used by the docs live in docs/images/.
+/docs/renders/
+
+# Logs, crash dumps
 *.log
-build_log.txt
-build_queue.json
-MEMORY.md
-IMPLEMENTATION_PLAN.md
+hs_err_*.log
+crash-reports/
 
 # Environment and local editor files
 .env
@@ -23,7 +33,5 @@ Thumbs.db
 .idea/
 .vscode/
 
-
 # Claude Code local settings
 .claude/settings.local.json
-tools/testserver/

@@ -42,6 +42,12 @@ public final class McaiConfig {
 	public int buildCooldownSeconds = 10;
 	/** Extra command prefixes the engine may run (same meaning as the engine's commandAllowlist). */
 	public List<String> commandAllowlist = new ArrayList<>();
+	/**
+	 * Let the engine place command/structure/jigsaw blocks with data and block entities whose text
+	 * runs commands on click (signs run those at game-master level for whoever clicks). Off: only
+	 * exact copies of such blocks that already existed in the world (undo, copy/paste) are placed.
+	 */
+	public boolean allowCommandBlocks = false;
 
 	private static final Gson GSON = new GsonBuilder().setPrettyPrinting().serializeNulls().create();
 
@@ -63,19 +69,24 @@ public final class McaiConfig {
 		if (cfg.engine == null) {
 			cfg.engine = new Engine();
 		}
-		if (cfg.commandAllowlist == null) {
-			cfg.commandAllowlist = new ArrayList<>();
-		}
+		cfg.commandAllowlist = cfg.commandAllowlist == null ? new ArrayList<>()
+				: new ArrayList<>(cfg.commandAllowlist.stream().filter(s -> s != null && !s.isBlank()).toList());
 		cfg.maxPerTick = Math.max(1, cfg.maxPerTick);
 		cfg.buildPermissionLevel = Math.clamp(cfg.buildPermissionLevel, 0, 4);
 		cfg.buildCooldownSeconds = Math.max(0, cfg.buildCooldownSeconds);
+		if (cfg.engine.host == null) {
+			cfg.engine.host = "";
+		}
+		if (cfg.engine.token == null) {
+			cfg.engine.token = "";
+		}
 		if (cfg.engine.command == null) {
 			cfg.engine.command = "";
 		}
 		if (cfg.engine.viewerUrl == null) {
 			cfg.engine.viewerUrl = "";
 		}
-		cfg.tickBudgetMs = Math.clamp(cfg.tickBudgetMs, 1.0, 45.0);
+		cfg.tickBudgetMs = Double.isFinite(cfg.tickBudgetMs) ? Math.clamp(cfg.tickBudgetMs, 1.0, 45.0) : 15.0;
 		return cfg;
 	}
 }

@@ -50,7 +50,7 @@ public final class BlockHandlers {
 		boolean withNbt = Json.bool(req, "blockEntities", false);
 		return ctx.onServer(() -> {
 			ServerLevel level = Dimensions.level(ctx.server(), Json.str(req, "dimension", null));
-			ReadBlocksTask task = new ReadBlocksTask(level, box, withNbt);
+			ReadBlocksTask task = new ReadBlocksTask(level, box, withNbt, ctx.blockPolicy());
 			ctx.scheduler().submitRead(task);
 			return task.future();
 		}).thenCompose(f -> f).thenApplyAsync(r -> {
@@ -78,7 +78,10 @@ public final class BlockHandlers {
 		BlockStates.Parsed[] palette = BlockStates.parseAll(BuiltInRegistries.BLOCK, paletteStrings);
 		return ctx.onServer(() -> {
 			ServerLevel level = Dimensions.level(ctx.server(), Json.str(req, "dimension", null));
-			PlaceBlocksTask task = new PlaceBlocksTask(level, palette, positions, states, updateShapes, animate, maxPerTick);
+			for (int i = 0; i < palette.length; i++) {
+				palette[i] = ctx.blockPolicy().check(palette[i]);
+			}
+			PlaceBlocksTask task = new PlaceBlocksTask(level, palette, positions, states, updateShapes, animate, maxPerTick, ctx.blockPolicy());
 			ctx.scheduler().submit(task);
 			return task.future();
 		}).thenCompose(f -> f).thenApplyAsync(BlockHandlers::placeResult, ctx.workers());
@@ -123,7 +126,10 @@ public final class BlockHandlers {
 		int ax = Json.requireInt(req, "x0"), az = Json.requireInt(req, "z0");
 		int bx = Json.requireInt(req, "x1"), bz = Json.requireInt(req, "z1");
 		int x0 = Math.min(ax, bx), x1 = Math.max(ax, bx), z0 = Math.min(az, bz), z1 = Math.max(az, bz);
-		long columns = (long) (x1 - x0 + 1) * (z1 - z0 + 1);
+		if (x0 < -BlockBox.MAX_COORD || x1 > BlockBox.MAX_COORD || z0 < -BlockBox.MAX_COORD || z1 > BlockBox.MAX_COORD) {
+			throw new ProtocolException("heightmap: coordinates must be within ±" + BlockBox.MAX_COORD);
+		}
+		long columns = ((long) x1 - x0 + 1) * ((long) z1 - z0 + 1);
 		if (columns > MAX_HEIGHTMAP_COLUMNS) {
 			throw new ProtocolException("heightmap: " + columns + " columns exceeds " + MAX_HEIGHTMAP_COLUMNS);
 		}

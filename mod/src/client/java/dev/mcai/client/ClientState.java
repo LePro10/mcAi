@@ -16,6 +16,7 @@ public final class ClientState {
 	public static final int MAX_THOUGHTS = 3;
 
 	private static McaiPayloads.Status status;
+	private static long statusAt;
 	private static McaiPayloads.JobUpdate job;
 	private static long jobUpdatedAt;
 	private static final Deque<Thought> thoughts = new ArrayDeque<>();
@@ -39,6 +40,17 @@ public final class ClientState {
 
 	public static void status(McaiPayloads.Status s) {
 		status = s;
+		statusAt = System.currentTimeMillis();
+	}
+
+	/** Seconds until the next build request is allowed, counted down locally from the last status. */
+	public static int cooldownLeft() {
+		McaiPayloads.Status s = status;
+		if (s == null || s.cooldownSeconds() <= 0) {
+			return 0;
+		}
+		long left = s.cooldownSeconds() * 1000L - (System.currentTimeMillis() - statusAt);
+		return left > 0 ? (int) Math.ceil(left / 1000.0) : 0;
 	}
 
 	public static McaiPayloads.JobUpdate job() {

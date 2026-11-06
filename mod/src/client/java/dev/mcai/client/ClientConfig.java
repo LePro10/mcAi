@@ -39,8 +39,14 @@ public final class ClientConfig {
 			if (Files.isRegularFile(file())) {
 				ClientConfig c = GSON.fromJson(Files.readString(file(), StandardCharsets.UTF_8), ClientConfig.class);
 				if (c != null) {
-					if (c.recentPrompts == null) {
-						c.recentPrompts = new ArrayList<>();
+					// a hand-edited file must not crash the prompt screen (or exceed the payload limits)
+					c.recentPrompts = c.recentPrompts == null ? new ArrayList<>()
+							: new ArrayList<>(c.recentPrompts.stream().filter(p -> p != null && !p.isBlank()).limit(MAX_RECENT).toList());
+					if (c.style == null || !java.util.Arrays.asList(dev.mcai.client.screen.PromptScreen.STYLES).contains(c.style)) {
+						c.style = "auto";
+					}
+					if (c.size == null || !java.util.Arrays.asList(dev.mcai.client.screen.PromptScreen.SIZES).contains(c.size)) {
+						c.size = "M";
 					}
 					return c;
 				}

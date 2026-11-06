@@ -7,7 +7,8 @@
 #   tools/testserver.sh logs [-f]         last 100 log lines (or follow)
 #   tools/testserver.sh cmd <command...>  send a console command (e.g. "say hi", "list")
 #
-# Layout: tools/testserver/ (gitignored)
+# Layout: tools/testserver/ (gitignored; MCAI_TESTSERVER_DIR=<dir> runs an independent second server,
+# e.g. tools/testserver-b — combine with MCAI_TESTSERVER_PORT and MCAI_HOME)
 #   server.jar                 vanilla server, copied from the sha1-verified mc-fetch cache
 #   fabric-server-launch.jar   Fabric server launcher (loader 0.20.1, cached in ~/.mcai-tools/fabric)
 #   mods/                      mcai-<version>.jar (mod/build/libs) + fabric-api (maven.fabricmc.net, sha1-verified)
@@ -18,7 +19,7 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-DIR="$ROOT/tools/testserver"
+DIR="${MCAI_TESTSERVER_DIR:-$ROOT/tools/testserver}" # another directory = an independent second test server
 JAVA_HOME="${JAVA_HOME:-$HOME/.mcai-tools/jdk-25.0.5+8/Contents/Home}"
 JAVA="$JAVA_HOME/bin/java"
 CACHE="${MCAI_MC_CACHE:-$HOME/.mcai-tools/mc}"

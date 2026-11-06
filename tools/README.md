@@ -8,7 +8,7 @@
 | `testserver.sh` | Headless Fabric dedicated server with Fabric API + the mod (`tools/testserver/`, gitignored) |
 | `mod-protocol-test.mjs` | Fake engine; integration test of the mod's engine bridge against the running test server |
 | `gen-mod-assets.mjs` | Generates the wand texture and the mod icon (pixel art, no dependencies) |
-| `client-gametest.sh` | Builds the mod and runs the client game tests in a real client window; screenshots → `docs/renders/mod-*.png` |
+| `client-gametest.sh` | Builds the mod and runs the client game tests in a real client window; screenshots → `docs/renders/mod-*.png` (gitignored scratch; images used by the docs are curated in `docs/images/`) |
 | `fake-engine.mjs` | Fake engine with an HTTP control API (records mod traffic, pushes job_update/notify); used by the client tests |
 
 Versions: Minecraft **26.3**, Java 25, Fabric Loader **0.20.1**, Fabric Loom **1.19.3**
@@ -88,6 +88,10 @@ tools/testserver.sh cmd "say hi"                # console command via a FIFO
   `spawn-protection=0`, port 25565 (`MCAI_TESTSERVER_PORT`), RCON off, `pause-when-empty-seconds=0`
   (tasks must keep ticking with nobody online), view distance 6. Heap: `MCAI_TESTSERVER_XMX` (4G).
 * `MCAI_HOME` is passed through, so the mod can be pointed at a separate engine home.
+* `MCAI_TESTSERVER_DIR=<dir>` runs an independent second server (e.g. `tools/testserver-b`, gitignored;
+  combine with its own `MCAI_TESTSERVER_PORT` and `MCAI_HOME`), so parallel test runs never share a
+  world or an engine. All `testserver.sh` subcommands (and the protocol test's console commands)
+  honour it.
 * **EULA:** running a Minecraft server requires accepting the Minecraft EULA
   (<https://aka.ms/MinecraftEULA>). The project owner accepted it for this local dev server only.
   The script never accepts it on anyone's behalf: if `tools/testserver/eula.txt` is not already
@@ -105,13 +109,21 @@ and restored on exit/Ctrl-C), waits for the mod's `hello`, then checks: registry
 property order, defaults, map colour, tags, dimension heights), ~100k-block `set_blocks` with
 fences/panes/walls/stairs (connections and stair shapes after the shape pass), signs/chest with SNBT,
 `get_blocks` round-trip equality, `previous` correctness and exact undo (including block entities),
-heightmap, biomes, players, entities, command allowlist rejections, invalid states (per-index
-`failed`), malformed messages, notify, boss-bar lifecycle, a 2 000 000-block single-message
-`set_blocks` with TPS sampling, and an engine disconnect in the middle of a job.
+heightmap, biomes, players, entities, command allowlist rejections (incl. non-decorative summon
+passengers), invalid states (per-index `failed`), coordinates beyond the world limit (must fail
+cleanly — a chunk ticket there used to crash the server), malformed messages/envelopes, guarded
+blocks (command blocks / `run_command` signs refused, exact copies via undo allowed), notify,
+boss-bar lifecycle, a 2 000 000-block single-message `set_blocks` with TPS sampling, and an engine
+disconnect in the middle of a job.
 
-Last run (2026-11-06, filtered network, MacBook x86_64): **75/75 checks passed**;
-2 000 000 blocks (37 MB message) in 11.5 s round trip at 20.0 TPS
-(mod: 2.3 s placement + 1.2 s shape pass of server-thread time, spread over 219 ticks).
+**Never run it against the shared `~/.mcai`** while a real game is open: give the test server and the
+test their own `MCAI_HOME` (see docs/DEVELOPMENT.md), otherwise a reconnecting game could pick up the
+fake engine.
+
+Last runs (2026-11-06, filtered network, MacBook x86_64): **85/85 checks passed**.
+Unloaded machine: 2 000 000 blocks (37 MB message) in 11.5 s round trip at 20.0 TPS
+(mod: 2.3 s placement + 1.2 s shape pass of server-thread time, spread over 219 ticks); with a game
+client and a second server running on the same laptop: 31.9 s, still 20.0 TPS.
 
 ## Client game tests (real client, automated)
 

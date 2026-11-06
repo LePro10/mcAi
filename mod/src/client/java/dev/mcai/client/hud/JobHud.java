@@ -51,7 +51,7 @@ public final class JobHud {
 		int x = x0 + 7;
 		int y = y0 + 5;
 		// title: mcAI · state            $cost
-		Component state = Component.translatable("mcai.job.state." + job.state());
+		Component state = Component.translatableWithFallback("mcai.job.state." + job.state(), job.state());
 		g.text(font, "mcAI", x, y, Theme.alpha(Theme.ACCENT, fade), true);
 		g.text(font, state, x + font.width("mcAI") + 5, y, Theme.alpha(stateColor(job.state()), fade), false);
 		if (job.costUsd() > 0) {

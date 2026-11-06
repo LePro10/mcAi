@@ -185,7 +185,7 @@ public final class PromptScreen extends Screen {
 	private boolean canBuild() {
 		McaiPayloads.Status s = ClientState.status();
 		return modServer() && s != null && s.engineConnected() && s.permitted() && !ClientState.jobRunning()
-				&& s.cooldownSeconds() <= 0 && prompt != null && !prompt.getValue().isBlank();
+				&& ClientState.cooldownLeft() <= 0 && prompt != null && !prompt.getValue().isBlank();
 	}
 
 	private void updateButtons() {
@@ -328,8 +328,8 @@ public final class PromptScreen extends Screen {
 		if (ClientState.jobRunning()) {
 			return Component.translatable("mcai.ui.status.running");
 		}
-		if (s.cooldownSeconds() > 0) {
-			return Component.translatable("mcai.ui.status.cooldown", s.cooldownSeconds());
+		if (ClientState.cooldownLeft() > 0) {
+			return Component.translatable("mcai.ui.status.cooldown", ClientState.cooldownLeft());
 		}
 		if (!s.problemKey().isEmpty()) {
 			return Component.translatable(s.problemKey(), s.problemArgs().toArray());
@@ -345,7 +345,7 @@ public final class PromptScreen extends Screen {
 		if (!s.engineConnected() || !s.permitted()) {
 			return Theme.BAD;
 		}
-		if (ClientState.jobRunning() || s.cooldownSeconds() > 0 || !s.problemKey().isEmpty()) {
+		if (ClientState.jobRunning() || ClientState.cooldownLeft() > 0 || !s.problemKey().isEmpty()) {
 			return Theme.WARN;
 		}
 		return Theme.OK;

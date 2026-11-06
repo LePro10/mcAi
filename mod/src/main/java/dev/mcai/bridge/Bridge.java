@@ -70,7 +70,7 @@ public final class Bridge implements EngineClient.Listener {
 		this.scheduler = new TickScheduler(config.tickBudgetMs);
 		this.io = Executors.newSingleThreadScheduledExecutor(r -> daemon(r, "mcai-engine-io"));
 		this.workers = Executors.newFixedThreadPool(2, r -> daemon(r, "mcai-engine-worker"));
-		this.ctx = new BridgeContext(server, config, scheduler, workers);
+		this.ctx = new BridgeContext(server, config, scheduler, workers, new dev.mcai.world.BlockPolicy(config.allowCommandBlocks));
 		this.bossBars = new JobBossBars(server);
 		this.client = new EngineClient(config, io, this);
 		this.jobs = new JobTracker(server);
@@ -214,18 +214,20 @@ public final class Bridge implements EngineClient.Listener {
 			return;
 		}
 		if (msg.has("re")) {
-			CompletableFuture<JsonObject> f = pending.remove(msg.get("re").getAsString());
+			JsonElement re = msg.get("re");
+			CompletableFuture<JsonObject> f = re.isJsonPrimitive() ? pending.remove(re.getAsString()) : null;
 			if (f != null) {
 				if (msg.has("ok") && !msg.get("ok").getAsBoolean()) {
-					f.completeExceptionally(new IllegalStateException(msg.has("error") ? msg.get("error").getAsString() : "engine error"));
+					f.completeExceptionally(new IllegalStateException(msg.has("error") && msg.get("error").isJsonPrimitive()
+							? msg.get("error").getAsString() : "engine error"));
 				} else {
 					f.complete(msg);
 				}
 			}
 			return;
 		}
-		String type = msg.has("type") ? msg.get("type").getAsString() : "";
-		String id = msg.has("id") && !msg.get("id").isJsonNull() ? msg.get("id").getAsString() : null;
+		String type = msg.has("type") && msg.get("type").isJsonPrimitive() ? msg.get("type").getAsString() : "";
+		String id = msg.has("id") && msg.get("id").isJsonPrimitive() ? msg.get("id").getAsString() : null;
 		RequestHandler handler = handlers.get(type);
 		if (handler == null) {
 			if (id != null) {
@@ -310,7 +312,8 @@ public final class Bridge implements EngineClient.Listener {
 		return out;
 	}
 
-	static String rootMessage(Throwable t) {
+	/** Human-readable cause of a failed future (unwraps CompletionException; timeouts → "timed out"). */
+	public static String rootMessage(Throwable t) {
 		while ((t instanceof CompletionException || t.getCause() != null && t instanceof java.util.concurrent.ExecutionException) && t.getCause() != null) {
 			t = t.getCause();
 		}

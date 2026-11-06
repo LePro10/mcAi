@@ -4,6 +4,7 @@
 #
 #   tools/client-gametest.sh               singleplayer tests (prompt GUI, HUD, chat, auto-start, offline …)
 #   tools/client-gametest.sh --dedicated   + multiplayer permission test against tools/testserver
+#                                           (or $MCAI_TESTSERVER_DIR / $MCAI_TESTSERVER_PORT)
 #                                           (needs the test server's EULA accepted, see tools/README.md)
 #
 # The mod starts tools/fake-engine.mjs itself through engine auto-start (no real engine, no AI cost).
@@ -29,7 +30,7 @@ if [[ $DEDICATED == 1 ]]; then
   export MCAI_GAMETEST_DEDICATED="127.0.0.1:${MCAI_TESTSERVER_PORT:-25565}|8798"
 fi
 # macOS may stall an OpenGL window that is completely hidden behind other windows (buffer swap
-# blocks); the Gradle task times out after 6 min — retry once in that case.
+# blocks); the Gradle task times out after 4 min — retry once in that case.
 status=0
 for attempt in 1 2; do
   status=0

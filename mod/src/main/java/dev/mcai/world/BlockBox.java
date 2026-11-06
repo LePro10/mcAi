@@ -6,9 +6,17 @@ import dev.mcai.protocol.ProtocolException;
 
 /** Inclusive, normalized block box (ARCHITECTURE §3). */
 public record BlockBox(int minX, int minY, int minZ, int maxX, int maxY, int maxZ) {
+	/** Coordinates beyond the vanilla world limit are rejected (also keeps sizes far from int overflow). */
+	public static final int MAX_COORD = 30_000_000;
+
 	public static BlockBox fromJson(JsonObject box) {
 		int[] a = Json.vec3(box, "min");
 		int[] b = Json.vec3(box, "max");
+		for (int i = 0; i < 3; i++) {
+			if (a[i] < -MAX_COORD || a[i] > MAX_COORD || b[i] < -MAX_COORD || b[i] > MAX_COORD) {
+				throw new ProtocolException("box coordinates must be within ±" + MAX_COORD);
+			}
+		}
 		return new BlockBox(Math.min(a[0], b[0]), Math.min(a[1], b[1]), Math.min(a[2], b[2]),
 				Math.max(a[0], b[0]), Math.max(a[1], b[1]), Math.max(a[2], b[2]));
 	}

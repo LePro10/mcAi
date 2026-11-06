@@ -31,7 +31,11 @@ ${B}Usage:${N} ./mcai <command> [options]
   ${B}server${N} <start|stop|restart|status|logs|console|cmd> …   dedicated multiplayer server (./mcai server help)
   ${B}update${N} [--shaders|--no-shaders]
                  rebuild the mod and reinstall it (client + server mods)
-  ${B}doctor${N}            detailed engine checks (node, claude, ports, mod connection)
+  ${B}doctor${N} [--smoke]   detailed engine checks (node, claude, ports, mod connection)
+  ${B}jobs${N} [--limit N]     recent AI jobs (cost, time, blocks)
+  ${B}feedback${N} [--limit N] the builder agents' improvement suggestions (~/.mcai/feedback)
+  ${B}render${N} --box x1,y1,z1,x2,y2,z2 [--view iso_se] [--out file.png] [--sim --seed N]
+                 render a region of the running world (or a simulation) to a PNG
   ${B}uninstall${N} [--dry-run] [--restore-backup] [--purge]
                  remove mcAI from the Minecraft Launcher (worlds are kept unless --purge)
 
@@ -318,6 +322,7 @@ case "$cmd" in
   logs) cmd_logs "$@" ;;
   update) cmd_update "$@" ;;
   doctor) need_node; need_engine_deps; cd "$ENGINE_DIR" && exec "$NODE" src/cli.ts doctor "$@" ;;
+  jobs|feedback|render) need_node; need_engine_deps; exec "$NODE" "$ENGINE_DIR/src/cli.ts" "$cmd" "$@" ;;
   uninstall) cmd_uninstall "$@" ;;
   help|-h|--help) usage ;;
   version|--version) echo "mcAI $MOD_VERSION" ;;

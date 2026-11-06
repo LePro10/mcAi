@@ -46,10 +46,15 @@ public final class McaiMod implements ModInitializer {
 			EngineLauncher.ensureRunning(config, !server.isDedicatedServer(), FabricLoader.getInstance().getGameDir());
 		});
 		ServerLifecycleEvents.SERVER_STARTED.register(server -> {
-			Bridge b = new Bridge(server, config);
-			bridge = b;
-			if (config.autoConnect) {
-				b.start();
+			try {
+				Bridge b = new Bridge(server, config);
+				bridge = b;
+				if (config.autoConnect) {
+					b.start();
+				}
+			} catch (RuntimeException e) {
+				// never take the world down with us: the game runs on without mcAI
+				LOG.error("mcai: could not start the engine bridge — mcAI is disabled for this world", e);
 			}
 		});
 		ServerTickEvents.END_SERVER_TICK.register(server -> {

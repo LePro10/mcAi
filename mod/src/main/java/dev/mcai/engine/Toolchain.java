@@ -81,15 +81,23 @@ public final class Toolchain {
 
 	/** {@code node --version}, e.g. "v22.18.0"; null if it cannot be run. */
 	public static String version(Path exe) {
+		Process p = null;
 		try {
-			Process p = new ProcessBuilder(exe.toString(), "--version").redirectErrorStream(true).start();
-			String out;
-			try (BufferedReader r = new BufferedReader(new InputStreamReader(p.getInputStream(), StandardCharsets.UTF_8))) {
-				out = r.readLine();
+			p = new ProcessBuilder(exe.toString(), "--version").redirectErrorStream(true)
+					.redirectInput(ProcessBuilder.Redirect.from(new File(WINDOWS ? "NUL" : "/dev/null"))).start();
+			if (!p.waitFor(5, TimeUnit.SECONDS) || p.exitValue() != 0) {
+				return null; // a hanging shim must not block the server start forever
 			}
-			return p.waitFor(5, TimeUnit.SECONDS) && p.exitValue() == 0 && out != null ? out.trim() : null;
+			try (BufferedReader r = new BufferedReader(new InputStreamReader(p.getInputStream(), StandardCharsets.UTF_8))) {
+				String out = r.readLine();
+				return out != null ? out.trim() : null;
+			}
 		} catch (Exception e) {
 			return null;
+		} finally {
+			if (p != null && p.isAlive()) {
+				p.destroyForcibly();
+			}
 		}
 	}
 

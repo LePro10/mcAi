@@ -19,9 +19,8 @@ public final class EngineReplies {
 		}
 		bridge.request(type, payload, 60).whenComplete((r, err) -> p.level().getServer().execute(() -> {
 			if (err != null) {
-				Throwable t = err.getCause() != null ? err.getCause() : err;
-				p.sendSystemMessage(Msg.error(Component.literal(String.valueOf(t.getMessage()))));
-			} else if (r.has("message")) {
+				p.sendSystemMessage(Msg.error(Component.literal(Bridge.rootMessage(err))));
+			} else if (r.has("message") && r.get("message").isJsonPrimitive()) {
 				p.sendSystemMessage(Msg.prefixed(Component.literal(r.get("message").getAsString())));
 			}
 		}));

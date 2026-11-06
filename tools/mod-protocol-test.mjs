@@ -303,6 +303,9 @@ await test('players + entities + command allowlist', async () => {
   const cases = [
     ['op Steve', false], ['stop', false], ['execute run say hi', false], ['summon minecraft:tnt 1000 -50 1000', false],
     ['kill @e', false], ['give @p diamond', false], ['say hello @a', false], ['time set day', false],
+    [`summon armor_stand ${X0 + 52} ${Y0 + 1} ${Z0 + 50} {Passengers:[{id:"minecraft:tnt",fuse:80}]}`, false],
+    [`summon minecart ${X0 + 52} ${Y0 + 1} ${Z0 + 50} {Passengers:[{id:'creeper'}]}`, false],
+    [`summon item_frame ${X0 + 53} ${Y0 + 1} ${Z0 + 50} {Item:{id:"minecraft:diamond_sword",count:1}}`, true],
     [`summon armor_stand ${X0 + 51} ${Y0 + 1} ${Z0 + 50}`, true],
     [`particle minecraft:flame ${X0} ${Y0 + 2} ${Z0}`, true],
   ];
@@ -344,8 +347,44 @@ await test('invalid input handling (no crash, per-index failures)', async () => 
   check(u.ok === false && /unknown/.test(u.error), `unknown type → ${u.error}`);
   const d = await request('get_blocks', { dimension: 'minecraft:nowhere', box: { min: [0, 0, 0], max: [1, 1, 1] } });
   check(d.ok === false && /dimension/.test(d.error), `unknown dimension → ${d.error}`);
+  const far = await request('get_blocks', { dimension: OVER, box: { min: [-2147483648, 0, 0], max: [2147483647, 0, 0] } });
+  check(far.ok === false && /within/.test(far.error), `box beyond the world limit → ${far.error}`);
+  const edge = await request('set_blocks', { dimension: OVER, ...new Batch().add(40_000_000, Y0 + 8, 0, 'minecraft:stone').wire() });
+  check(edge.ok && edge.failed?.length === 1 && /outside the world/.test(edge.failed[0].reason), `position beyond the world border → per-index failure (no chunk load)`, edge.error ?? JSON.stringify(edge.failed));
+  const hm = await request('heightmap', { dimension: OVER, x0: 40_000_000, z0: 0, x1: 40_000_001, z1: 0 });
+  check(hm.ok === false && /within/.test(hm.error), `heightmap beyond the world limit → ${hm.error}`);
+  // malformed envelopes must not stall the bridge
+  socket.send(JSON.stringify({ re: { x: 1 }, ok: true }));
+  socket.send(JSON.stringify({ type: { nested: true }, id: 'weird-type' }));
+  socket.send('[1,2,3]');
+  socket.send('not json');
   const s = await request('status');
   check(s.ok && s.tick > 0, `server still healthy (tick ${s.tick}, mspt ${s.mspt?.toFixed(2)})`);
+});
+
+await test('guarded blocks: command blocks / run_command signs only as exact copies (undo)', async () => {
+  const Y = Y0 + 9;
+  const cmdBlock = 'minecraft:repeating_command_block[conditional=false,facing=up]{Command:"say pwned",auto:1b}';
+  const evilSign = 'minecraft:oak_sign[rotation=0,waterlogged=false]{front_text:{messages:[{text:"Click",click_event:{action:"run_command",command:"/op Steve"}},"","",""]}}';
+  const b = new Batch()
+    .add(X0 + 10, Y, Z0 + 10, cmdBlock)
+    .add(X0 + 11, Y, Z0 + 10, evilSign)
+    .add(X0 + 12, Y, Z0 + 10, 'minecraft:command_block[conditional=false,facing=up]')
+    .add(X0 + 13, Y, Z0 + 10, 'minecraft:oak_sign[rotation=0,waterlogged=false]{front_text:{messages:["plain","","",""]}}');
+  const r = await request('set_blocks', { dimension: OVER, ...b.wire(), updateShapes: false });
+  const idx = (r.failed ?? []).map((f) => f.index).sort();
+  check(r.ok && JSON.stringify(idx) === '[0,1]', `command block with data + run_command sign refused, empty command block + plain sign placed (failed ${JSON.stringify(idx)})`, r.error ?? r.failed?.[0]?.reason);
+  // a guarded block that exists in the world (here: placed by the console) can be put back by undo
+  const at = [X0 + 14, Y, Z0 + 10];
+  execFileSync(join(ROOT, 'tools/testserver.sh'), ['cmd', `setblock ${at.join(' ')} minecraft:command_block{Command:"say from the operator"}`]);
+  await new Promise((res) => setTimeout(res, 1500));
+  const over = await request('set_blocks', { dimension: OVER, ...new Batch().add(...at, 'minecraft:stone').wire(), updateShapes: false });
+  const prev = over.previous?.palette?.[fromB64(over.previous.states, Uint16Array)[0]] ?? '';
+  check(over.ok && /command_block.*say from the operator/.test(prev), 'previous carries the operator\'s command block', prev);
+  const undo = await request('set_blocks', { dimension: OVER, palette: over.previous.palette, positions: b64(Int32Array.from(at)), states: over.previous.states, updateShapes: false });
+  check(undo.ok && undo.failed.length === 0 && undo.placed === 1, 'undo restores it (exact copy of a block mcAI saw)', JSON.stringify(undo.failed ?? undo.error));
+  const v = await getBlocks({ min: at, max: at }, { blockEntities: true });
+  check(/say from the operator/.test(v.palette[v.data[0]]), 'command block back in the world with its command');
 });
 
 await test('notify + job_update boss bar lifecycle', async () => {

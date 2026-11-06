@@ -11,6 +11,7 @@ import java.util.concurrent.CompletableFuture;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.server.level.ServerLevel;
+import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.state.BlockState;
 
@@ -51,6 +52,7 @@ public final class PlaceBlocksTask implements TickTask {
 	private final CompletableFuture<Result> future = new CompletableFuture<>();
 	private final BlockPos.MutableBlockPos pos = new BlockPos.MutableBlockPos();
 	private final ChunkTickets tickets;
+	private final BlockPolicy policy;
 
 	private final int n;
 	private final char[] previous;
@@ -74,8 +76,9 @@ public final class PlaceBlocksTask implements TickTask {
 	private int chunkWaitTicks;
 
 	public PlaceBlocksTask(ServerLevel level, BlockStates.Parsed[] palette, int[] positions, char[] states,
-			boolean updateShapes, String animate, int maxPerTick) {
+			boolean updateShapes, String animate, int maxPerTick, BlockPolicy policy) {
 		this.level = level;
+		this.policy = policy;
 		this.tickets = new ChunkTickets(level);
 		this.palette = palette;
 		this.positions = positions;
@@ -141,7 +144,7 @@ public final class PlaceBlocksTask implements TickTask {
 							return false;
 						}
 						int i = order == null ? cursor : order[cursor];
-						if (!tickets.ready(positions[i * 3] >> 4, positions[i * 3 + 2] >> 4)) {
+						if (inWorld(i) && !tickets.ready(positions[i * 3] >> 4, positions[i * 3 + 2] >> 4)) {
 							chunkWaitTicks++;
 							return false; // chunk is being loaded/generated off-thread
 						}
@@ -210,9 +213,16 @@ public final class PlaceBlocksTask implements TickTask {
 			failed.add(new Failure(i, "y=" + y + " is outside the build height " + level.getMinY() + ".." + level.getMaxY()));
 			return;
 		}
+		if (!inWorld(i)) {
+			previous[i] = 0;
+			failed.add(new Failure(i, x + "," + z + " is outside the world border limit (±" + Level.MAX_LEVEL_SIZE + ")"));
+			return;
+		}
 		pos.set(x, y, z);
 		BlockState old = level.getBlockState(pos);
-		previous[i] = previousIndexOf(old.hasBlockEntity() ? BlockStates.withBlockEntity(level, pos, old) : BlockStates.canonical(old));
+		net.minecraft.nbt.CompoundTag oldTag = BlockStates.blockEntityTag(level, pos, old);
+		policy.saw(old, oldTag); // undo may put it back
+		previous[i] = previousIndexOf(BlockStates.withTag(old, oldTag));
 		int s = states[i];
 		if (s >= palette.length) {
 			failed.add(new Failure(i, "palette index " + s + " out of range"));
@@ -241,6 +251,12 @@ public final class PlaceBlocksTask implements TickTask {
 		if (batch != null) {
 			batch.add(pos.asLong());
 		}
+	}
+
+	/** Inside the build height and the horizontal world limit (no chunk is requested otherwise). */
+	private boolean inWorld(int i) {
+		return Level.isInSpawnableBounds(pos.set(positions[i * 3], positions[i * 3 + 1], positions[i * 3 + 2]))
+				&& !level.isOutsideBuildHeight(positions[i * 3 + 1]);
 	}
 
 	private void fixShape(long p) {

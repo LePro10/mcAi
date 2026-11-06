@@ -97,7 +97,16 @@ siehst du live im Web-Viewer (`./mcai viewer`).
 ./mcai logs [engine|server|game] [-f]
 ./mcai stop [--all]         # --all stoppt auch den Server
 ./mcai update               # Mod neu bauen + überall neu installieren
+./mcai jobs                 # letzte KI-Bauten (Kosten, Blöcke, Prompt)
+./mcai feedback             # Verbesserungsvorschläge der Bau-Agenten
 ```
+
+Den Viewer im Heimnetz zeigen (z. B. auf dem Tablet): `node scripts/lan-proxy.mjs <deine-LAN-IP> 7878 7878`.
+**Achtung:** Dann kann *jeder* im Netz Bauten starten (kostet dein API-Guthaben), rückgängig machen und das
+Engine-Token lesen — nur in vertrauenswürdigen Netzen und danach wieder beenden.
+
+Mod-Einstellungen (Berechtigungsstufe, Cooldown, Tick-Budget, erlaubte Zusatzbefehle …) stehen in
+`config/mcai.json` des Spiel- bzw. Serverordners — Tabelle in [DEVELOPMENT.md](DEVELOPMENT.md#mod-configuration-configmcaijson-created-on-first-start).
 
 Logs: `~/.mcai/logs/engine.log`, Server: `server/logs/latest.log`, Spiel:
 `…/minecraft/profiles/mcai/logs/latest.log`.
@@ -195,7 +204,10 @@ Singleplayer and a server share one engine — `./mcai play` refuses while the s
 ### Engine & viewer
 
 `./mcai start --sim` (simulation + browser viewer), `./mcai build "<prompt>"` (headless build, PNG
-renders), `./mcai status`, `./mcai logs [engine|server|game] [-f]`, `./mcai stop [--all]`, `./mcai update`.
+renders), `./mcai status`, `./mcai logs [engine|server|game] [-f]`, `./mcai stop [--all]`, `./mcai update`,
+`./mcai jobs`, `./mcai feedback`. `scripts/lan-proxy.mjs` exposes the viewer on your LAN — then anyone on
+that network can start (paid) builds, undo and read the engine token; trusted networks only. Mod settings:
+`config/mcai.json` ([table](DEVELOPMENT.md#mod-configuration-configmcaijson-created-on-first-start)).
 
 ### Performance choices (Intel UHD 620)
 

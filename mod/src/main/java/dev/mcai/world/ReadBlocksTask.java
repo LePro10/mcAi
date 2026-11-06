@@ -31,11 +31,13 @@ public final class ReadBlocksTask implements TickTask {
 	private final HashMap<String, Character> stringIndex = new HashMap<>();
 	private final BlockPos.MutableBlockPos pos = new BlockPos.MutableBlockPos();
 	private final ChunkTickets tickets;
+	private final BlockPolicy policy;
 	private final int minCx, maxCx, minCz, maxCz, minSy, maxSy;
 	private int cx, cz, sy;
 
-	public ReadBlocksTask(ServerLevel level, BlockBox box, boolean blockEntities) {
+	public ReadBlocksTask(ServerLevel level, BlockBox box, boolean blockEntities, BlockPolicy policy) {
 		this.level = level;
+		this.policy = policy;
 		// clamp y to the world; outside rows stay air (index 0)
 		this.box = box;
 		this.tickets = new ChunkTickets(level);
@@ -116,7 +118,9 @@ public final class ReadBlocksTask implements TickTask {
 	}
 
 	private char withNbt(int x, int y, int z, BlockState s) {
-		String str = BlockStates.withBlockEntity(level, pos.set(x, y, z), s);
+		net.minecraft.nbt.CompoundTag tag = BlockStates.blockEntityTag(level, pos.set(x, y, z), s);
+		policy.saw(s, tag);
+		String str = BlockStates.withTag(s, tag);
 		Character c = stringIndex.get(str);
 		return c != null ? c : add(str);
 	}

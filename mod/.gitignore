@@ -1,12 +1,18 @@
-.gradle/
-build/
-out/
-classes/
-bin/
-run/
+# Gradle / Loom output — anchored to mod/ on purpose: an unanchored "build/" also hid the
+# source package src/main/java/dev/mcai/build/ from git.
+/.gradle/
+/build/
+/out/
+/classes/
+/bin/
+/run/
+
+# IDE
 .idea/
 *.iml
 .vscode/
+
+# JVM crash dumps / profiling
 hs_err_*.log
 replay_*.log
 *.hprof

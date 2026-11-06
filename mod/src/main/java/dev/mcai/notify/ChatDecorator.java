@@ -68,8 +68,9 @@ public final class ChatDecorator {
 				case "redo" -> buttons.add(ChatActions.redo());
 				case "cancel" -> buttons.add(ChatActions.cancel());
 				case "viewer" -> {
-					if (!url.isEmpty()) {
-						buttons.add(ChatActions.viewer(url));
+					Component v = url.isEmpty() ? null : ChatActions.viewer(url);
+					if (v != null) {
+						buttons.add(v);
 					}
 				}
 				default -> {

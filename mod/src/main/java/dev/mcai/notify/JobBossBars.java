@@ -73,7 +73,11 @@ public final class JobBossBars {
 		}
 	}
 
-	/** Called every server tick: expire finished bars, re-attach players who re-joined. */
+	/**
+	 * Called every server tick: expire finished bars; once a second follow the owner — a player who
+	 * left is dropped from the bar (vanilla does not do that for mod boss bars), a player who
+	 * re-joined or respawned (new ServerPlayer object) is attached again.
+	 */
 	public void tick() {
 		if (bars.isEmpty()) {
 			return;
@@ -84,10 +88,14 @@ public final class JobBossBars {
 			if (bar.removeAtTick >= 0 && now >= bar.removeAtTick) {
 				bar.event.removeAllPlayers();
 				it.remove();
-			} else if (bar.player != null && bar.event.getPlayers().isEmpty() && now % 20 == 0) {
+			} else if (bar.player != null && now % 20 == 0) {
 				ServerPlayer p = server.getPlayerList().getPlayerByName(bar.player);
-				if (p != null) {
-					bar.event.addPlayer(p);
+				boolean current = p != null && bar.event.getPlayers().size() == 1 && bar.event.getPlayers().contains(p);
+				if (!current) {
+					bar.event.removeAllPlayers();
+					if (p != null) {
+						bar.event.addPlayer(p);
+					}
 				}
 			}
 		}

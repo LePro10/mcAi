@@ -51,6 +51,10 @@ public final class ChunkTickets {
 		if (key == lastReady) {
 			return true;
 		}
+		if (!ChunkPos.isValid(cx, cz)) {
+			// a ticket there would crash the server ("chunk out of reasonable bounds")
+			throw new IllegalStateException("chunk " + cx + "," + cz + " is outside the world");
+		}
 		if (held.add(key)) {
 			level.getChunkSource().addTicketWithRadius(TYPE, ChunkPos.unpack(key), 0);
 		}
@@ -77,7 +81,7 @@ public final class ChunkTickets {
 		int n = 0;
 		for (LongIterator it = chunkKeys.iterator(); it.hasNext() && n < MAX_PREFETCH; n++) {
 			long key = it.nextLong();
-			if (held.add(key)) {
+			if (ChunkPos.isValid(ChunkPos.getX(key), ChunkPos.getZ(key)) && held.add(key)) {
 				level.getChunkSource().addTicketWithRadius(TYPE, ChunkPos.unpack(key), 0);
 			}
 		}

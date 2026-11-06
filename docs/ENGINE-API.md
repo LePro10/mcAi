@@ -310,6 +310,20 @@ export function placePrefab(name: string, at: Vec3, params: Record<string, unkno
   shape/roof params are validated with usage messages.
 * `server/generators.ts`: `GeneratorLibrary` (`~/.mcai/generators/<name>.json`), `referencedGenerators(code)`.
 
+### iteration 2 (real-Minecraft play-test)
+* `server/hub.ts resolveAllowedBox(backend, req, cfg, world)` → `{box, notes}`: selection + `selectionMargin`
+  (default 8), extended down to the lowest ground/water bed (ocean_floor heightmap) −2 (≤ 32 below the floor) and
+  up to ≥ `minBuildHeight` (32, +16 for tall prompts). `JobRequest.allowedBox/boxNotes`; get_context shows
+  `selection` (primary area) and `allowedBox.notes`; build_request answers `{ jobId, allowedBox, selection }`.
+* `server/tools/world-cache.ts JobWorldCache` (via `worldOf(ctx)`): per-job read cache — first read inside the
+  job area loads allowed box ± 4 once, slices afterwards; own writes update it; heightmaps cached and invalidated
+  by overlapping writes; TTL 90 s; foreign edits (other jobs, player tools) invalidate overlaps; every real round
+  trip is logged as job-log kind `world`. EditSession locks on `lockTarget` (the real backend).
+* readBox (run_script) clamped to allowed ± 4, scan_region to allowed ± 16. Script globals `isWater(x,y,z)`;
+  `groundY` covers allowed ± 8 and falls back to the nearest column instead of throwing.
+* DSL: `vines` op (`builders.ts vines`: exterior detection by flood fill + sky access within 3, doorways skipped),
+  `cylinder.interior` (exact tiling with the hollow shell), bridge rails 4-connected on diagonals.
+
 ---------------------------------------------------------------------------------------
 ## Owner: assets-render-sim
 

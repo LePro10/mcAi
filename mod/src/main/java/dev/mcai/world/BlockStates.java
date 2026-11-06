@@ -97,16 +97,25 @@ public final class BlockStates {
 
 	/** Canonical string plus {@code {snbt}} of the block entity at {@code pos}, if any and non-empty. */
 	public static String withBlockEntity(ServerLevel level, BlockPos pos, BlockState state) {
-		String base = canonical(state);
+		return withTag(state, blockEntityTag(level, pos, state));
+	}
+
+	/** Canonical string plus {@code {snbt}} if {@code tag} is non-null. */
+	public static String withTag(BlockState state, CompoundTag tag) {
+		return tag == null ? canonical(state) : canonical(state) + tag;
+	}
+
+	/** SNBT data of the block entity at {@code pos}, or null if there is none (or it is empty). */
+	public static CompoundTag blockEntityTag(ServerLevel level, BlockPos pos, BlockState state) {
 		if (!state.hasBlockEntity()) {
-			return base;
+			return null;
 		}
 		BlockEntity be = level.getBlockEntity(pos);
 		if (be == null) {
-			return base;
+			return null;
 		}
 		CompoundTag tag = be.saveWithoutMetadata(level.registryAccess());
-		return tag.isEmpty() ? base : base + tag;
+		return tag.isEmpty() ? null : tag;
 	}
 
 	/** Load SNBT data into the block entity at {@code pos} and sync it to clients. */

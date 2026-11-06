@@ -227,12 +227,11 @@ public final class McaiCommands {
 		}
 		bridge.request(type, payload, 60).whenComplete((r, err) -> src.getServer().execute(() -> {
 			if (err != null) {
-				Throwable t = err.getCause() != null ? err.getCause() : err;
-				src.sendFailure(Msg.error(Component.literal(t.getMessage() != null ? t.getMessage() : t.toString())));
+				src.sendFailure(Msg.error(Component.literal(Bridge.rootMessage(err))));
 				return;
 			}
 			Component text = describe.apply(r);
-			if (text == null && r.has("message")) {
+			if (text == null && r.has("message") && r.get("message").isJsonPrimitive()) {
 				text = Component.literal(r.get("message").getAsString());
 			}
 			if (text != null) {

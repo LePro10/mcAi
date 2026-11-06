@@ -31,10 +31,20 @@ public final class ChatActions {
 		return command("mcai.chat.cancel", "Cancel", "/mcai cancel", ChatFormatting.RED, "mcai.chat.cancel.hover", "Stop the running build (placed blocks stay; use Undo)");
 	}
 
+	/** [Open viewer], or null if {@code url} is not a usable http(s) URL (e.g. a typo in config/mcai.json). */
 	public static MutableComponent viewer(String url) {
+		URI uri;
+		try {
+			uri = URI.create(url);
+		} catch (IllegalArgumentException e) {
+			return null;
+		}
+		if (!"http".equalsIgnoreCase(uri.getScheme()) && !"https".equalsIgnoreCase(uri.getScheme())) {
+			return null;
+		}
 		return Component.literal("[").append(Msg.tr("mcai.chat.viewer", "Open viewer")).append("]")
 				.withStyle(s -> s.withColor(ChatFormatting.GREEN)
-						.withClickEvent(new ClickEvent.OpenUrl(URI.create(url)))
+						.withClickEvent(new ClickEvent.OpenUrl(uri))
 						.withHoverEvent(new HoverEvent.ShowText(Component.literal(url))));
 	}
 

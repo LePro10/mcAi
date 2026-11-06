@@ -27,6 +27,8 @@ public final class CommandPolicy {
 			Pattern.CASE_INSENSITIVE);
 	private static final Pattern WIDE_SELECTOR = Pattern.compile("@[aer]\\b|@[aer]\\[");
 	private static final Pattern COMMANDS_IN_DATA = Pattern.compile("command_block|\"run_command\"|run_command", Pattern.CASE_INSENSITIVE);
+	/** {@code id:"minecraft:tnt"} / {@code id:'tnt'} / {@code id:creeper} inside entity data (Passengers, …). */
+	private static final Pattern DATA_ID = Pattern.compile("\\bid\\s*:\\s*[\"']?(?:minecraft:)?([a-z0-9_./-]+)", Pattern.CASE_INSENSITIVE);
 
 	private final boolean allowTimeWeather;
 	private final List<String> extra;
@@ -35,6 +37,23 @@ public final class CommandPolicy {
 		this.allowTimeWeather = config.allowTimeWeather;
 		this.extra = java.util.stream.Stream.concat(config.commandAllowlist.stream(), engineExtras.stream())
 				.map(s -> s.trim().toLowerCase(Locale.ROOT)).filter(s -> !s.isEmpty()).toList();
+	}
+
+	/**
+	 * First entity id in the command's data that is a registered entity type but not decorative
+	 * (an armor stand with a TNT/wither passenger), else null. Item ids that are no entity types
+	 * (item frame contents, equipment) are fine.
+	 */
+	static String nonDecorativeEntityInData(String command) {
+		java.util.regex.Matcher m = DATA_ID.matcher(command);
+		while (m.find()) {
+			String id = m.group(1).toLowerCase(Locale.ROOT);
+			net.minecraft.resources.Identifier key = net.minecraft.resources.Identifier.tryParse("minecraft:" + id);
+			if (key != null && !DECORATIVE_ENTITIES.contains(id) && net.minecraft.core.registries.BuiltInRegistries.ENTITY_TYPE.containsKey(key)) {
+				return id;
+			}
+		}
+		return null;
 	}
 
 	/** @return null if allowed, else the reason it was rejected */
@@ -68,6 +87,10 @@ public final class CommandPolicy {
 				}
 				if (COMMANDS_IN_DATA.matcher(c).find()) {
 					return "entity data with commands is not allowed";
+				}
+				String nested = nonDecorativeEntityInData(c);
+				if (nested != null) {
+					return "entity data contains the non-decorative entity '" + nested + "' (e.g. as a passenger)";
 				}
 				String rest = String.join(" ", java.util.Arrays.copyOfRange(tokens, Math.min(5, tokens.length), tokens.length))
 						.replaceAll("(?s)\\{.*}", "");
