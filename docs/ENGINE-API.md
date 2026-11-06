@@ -26,8 +26,10 @@ export class Registry {
   tryCanonical(state: string): { ok: true; state: string } | { ok: false; error: string };
   hasTag(id: string, tag: string): boolean;       // tag like 'minecraft:stairs' or '#stairs'
   search(query: string, opts?: { tag?: string; limit?: number }): string[];  // fuzzy by id words
-  isFullSolid(state: string): boolean;            // heuristic full cube (for connections/AO/masks)
-  isTransparent(state: string): boolean;          // glass, leaves, panes, air, plants, …
+  isFullSolid(state: string): boolean;            // full cube: all faces sturdy or full-cube collision (masks/terrain)
+  isTransparent(state: string): boolean;          // !isSolidRender: glass, leaves, panes, air, plants, shulker boxes …
+  physics(state: string): PhysClass | null;       // real per-state facts (physics.ts), null = no data
+  hasPhysics(): boolean;
 }
 export class RegistryError extends Error {}
 ```
@@ -130,9 +132,19 @@ export class OpError extends Error { index: number }
 ### core-geometry: implementation notes / additions (compatible with the above)
 * `registry.ts`: `RegistryError.suggestions: string[]`; extras `suggest(query, limit)`, `tagMembers(tag)`,
   `levenshtein()`, `propOf(state, prop)`. Unknown ids → "Did you mean: …" (word overlap + edit distance +
-  alias table, e.g. `cobble`, `grass`, `chain` → `iron_chain`). `isFullSolid` is true for glass, leaves,
-  shulker boxes (the fence/wall/pane exceptions for leaves/pumpkins/melons/barrier/shulkers live in
-  connect.ts); `isTransparent` = not full or see-through (glass, leaves, ice, spawner, grates, …).
+  alias table, e.g. `cobble`, `grass`, `chain` → `iron_chain`). Solidity comes from the **registry
+  physics** (ARCHITECTURE §5: the mod's hello table, else `engine/data/physics-26.3.json`, else id
+  heuristics for unknown/modded blocks). `isFullSolid` is true for glass, leaves, mud, soul sand, shulker
+  boxes (leaves only by collision — they have no sturdy faces; support.ts/connect.ts use the face data;
+  the fence/wall/pane exceptions for leaves/pumpkins/melons/barrier/shulkers live in connect.ts);
+  `isTransparent` = `!isSolidRender` (glass, leaves, ice, spawner, grates, shulker boxes, …).
+* `physics.ts`: `PhysicsIndex`, `buildPhysicsTable`, `PF` flag bits, `PhysClass` =
+  `[full, center, rigid, collision, support, flags]` (direction masks: down, up, north, south, west, east).
+* `support.ts` face levels: `CENTER = 1`, `RIGID = 2`, `FULL = 7` (a full face is also centre + rigid; test
+  with `(f & L) === L`). Extra kinds `bell` and `soil` (farmland/dirt path under a solid block → `dirt`,
+  reported as a replacement); `soilConversions(get, positions, reg, {paths})` for the simulation.
+* `connect.ts` also updates `snowy` (grass/podzol/mycelium under `#snow`), tripwire sides and pale moss carpet
+  sides; an isolated redstone dot stays a dot (vanilla). Extras `isConductor(state)`, `wallCover(state)`.
 * `transform.ts`: extras `rotateDir`, `mirrorDir`. Outputs are canonical; SNBT is kept (not rewritten).
   **Deviation from vanilla:** stairs `shape` left/right is swapped on *every* mirror (vanilla only swaps when
   the stair faces along the mirror axis — geometrically wrong); this keeps `mirror∘rot1 == rot3∘mirror`.

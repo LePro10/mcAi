@@ -410,6 +410,21 @@ export class EditSession implements BlockSink {
         for (const line of summarizeSupport(support.changes)) warnings.push(`support: ${line}`);
         if (support.warnings.length) for (const line of summarizeSupport(support.warnings, undefined, 'found')) warnings.push(`support: ${line}`);
       }
+      // dropped / trimmed / converted blocks change what their neighbours connect to (a fence next
+      // to a dropped door, a wall next to farmland that became dirt) → re-solve around them
+      if (this.connect && support?.changes.length) {
+        const getter = (x: number, y: number, z: number): string => work.get(x, y, z) ?? this.cached(x, y, z) ?? AIR;
+        try {
+          for (const [x, y, z, st] of solveConnections(getter, support.changes.map((c) => c.pos), this.reg)) {
+            if (getter(x, y, z) === st || !this.inBounds(x, y, z)) continue;
+            if (!work.has(x, y, z) && this.cached(x, y, z) === undefined) continue;
+            connections++;
+            work.set(x, y, z, st);
+          }
+        } catch (e) {
+          warnings.push(`connection solving failed: ${(e as Error).message}`);
+        }
+      }
     }
 
     // 3. skip blocks that already have the target state
@@ -518,7 +533,15 @@ export class EditSession implements BlockSink {
     const nb: Vec3[] = [[1, 0, 0], [-1, 0, 0], [0, 1, 0], [0, -1, 0], [0, 0, 1], [0, 0, -1]];
     for (const [x, y, z, s] of work.entries()) {
       if (needsSupport(s, reg)) seeds.push([x, y, z]);
-      if (reg.isFullSolid(s)) continue; // a full block never removes support from its neighbours
+      if (reg.isFullSolid(s)) {
+        // a full block never removes support from its neighbours — but farmland / dirt paths below
+        // turn into dirt under it
+        if (!work.has(x, y - 1, z)) {
+          const c = this.cached(x, y - 1, z);
+          if (c !== undefined && needsSupport(c, reg)) seeds.push([x, y - 1, z]);
+        }
+        continue;
+      }
       for (const d of nb) {
         const px = x + d[0], py = y + d[1], pz = z + d[2];
         if (work.has(px, py, pz)) continue;

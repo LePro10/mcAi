@@ -162,6 +162,30 @@ await test('handshake: hello + registry dump', async () => {
   check(stairs?.default?.half === 'bottom' && stairs?.tags?.includes('minecraft:stairs'), 'oak_stairs defaults + tags');
   check(/^#[0-9a-f]{6}$/.test(blocks['minecraft:stone']?.mapColor ?? ''), `stone mapColor ${blocks['minecraft:stone']?.mapColor}`);
   check(blocks['minecraft:stone']?.solid === true && blocks['minecraft:oak_fence']?.solid === false, 'solid hints');
+  // registry physics (ARCHITECTURE §5): computed from the real classes; must equal the bundled
+  // engine/data/physics-26.3.json for vanilla (generated from the same 26.3 server by Probe.java)
+  const ph = h.registry?.physics;
+  const size = JSON.stringify(h.registry ?? {}).length, phSize = JSON.stringify(ph ?? {}).length;
+  check(ph?.format === 1 && Array.isArray(ph.classes) && Object.keys(ph.blocks ?? {}).length === n,
+    `physics format ${ph?.format}: ${ph?.classes?.length} classes for ${Object.keys(ph?.blocks ?? {}).length} blocks (${(phSize / 1024).toFixed(0)} kB of a ${(size / 1024).toFixed(0)} kB registry)`);
+  if (ph) {
+    const { Registry } = await import('../engine/src/core/registry.ts');
+    const live = new Registry(h.registry);
+    const bundled = new Registry({ version: h.registry.version, blocks: h.registry.blocks });
+    let states = 0, diff = 0, example = '';
+    for (const [id, info] of Object.entries(blocks)) {
+      const names = Object.keys(info.properties).sort();
+      const combos = names.reduce((acc, k) => acc.flatMap((a) => info.properties[k].map((v) => [...a, `${k}=${v}`])), [[]]);
+      for (const c of combos) {
+        const st = c.length ? `${id}[${c.join(',')}]` : id;
+        states++;
+        const a = live.physics(st)?.join(','), b = bundled.physics(st)?.join(',');
+        if (a !== b) { diff++; example ||= `${st}: mod ${a} vs bundled ${b}`; }
+      }
+    }
+    check(diff === 0, `hello physics = bundled physics for all ${states} states${diff ? ` — ${diff} differ, e.g. ${example}` : ''}`);
+    check(live.physics('minecraft:oak_leaves[distance=7,persistent=true,waterlogged=false]')?.[0] === 0 && live.isFullSolid('minecraft:mud'), 'leaves: no sturdy faces; mud: full');
+  }
   const ow = h.dimensions?.find((d) => d.id === OVER);
   check(ow && ow.minY === -64 && ow.maxY === 319 && ow.seaLevel != null, `overworld ${JSON.stringify(ow)}`);
   check(h.dimensions?.length === 3, `${h.dimensions?.length} dimensions`);

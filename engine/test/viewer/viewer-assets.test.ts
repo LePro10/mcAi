@@ -109,75 +109,84 @@ test('info, geometry (POST + GET) and biomes', async () => {
 
 test('protocol client: hello, get_blocks decode + mesh, live blocks, start_job, reply, reconnect', async () => {
   const client = new EngineClient({ base, reconnect: true });
-  const hello = new Promise<any>((r) => client.on('hello', r));
-  await client.connect();
-  const h = await hello;
-  assert.equal(h.status.backend, 'sim');
-  // get_blocks like the page: decode, remap to a global palette, mesh in the worker core
-  const box = { min: [0, 64, 0], max: [15, 79, 15] }; // exactly one section
-  const vol = decodeVolume(await client.request('get_blocks', { box }));
-  assert.equal(vol.data.length, 16 * 16 * 16);
-  const geoRes = await client.api('/api/viewer/geometry', { body: { states: vol.palette } });
-  const posted: any[] = [];
-  const core = new MeshCore((m: any) => posted.push(m));
-  core.handle({ t: 'geo', entries: vol.palette.map((s: string, i: number) => [i, s, geoRes.geometry[s]]) });
-  core.handle({ t: 'volume', box, data: vol.data, center: [0, 64, 0] });
-  while (core.dirty.size) core.process(1e9);
-  const sections = posted.filter((m) => m.t === 'section');
-  assert.equal(sections.length, 1);
-  // flat grass layer at y=64: its top + the four diorama sides (+ bottom) are visible
-  assert.ok(sections[0].layers.opaque.count > 0);
-  assert.ok(posted.some((m) => m.t === 'loaded'));
+  // always release the client (it reconnects on its own) and any job, even when an assertion fails —
+  // otherwise the open socket / reconnect timer keeps the test process alive
+  let jobId: string | undefined;
+  try {
+    const hello = new Promise<any>((r) => client.on('hello', r));
+    await client.connect();
+    const h = await hello;
+    assert.equal(h.status.backend, 'sim');
+    // get_blocks like the page: decode, remap to a global palette, mesh in the worker core
+    const box = { min: [0, 64, 0], max: [15, 79, 15] }; // exactly one section
+    const vol = decodeVolume(await client.request('get_blocks', { box }));
+    assert.equal(vol.data.length, 16 * 16 * 16);
+    const geoRes = await client.api('/api/viewer/geometry', { body: { states: vol.palette } });
+    const posted: any[] = [];
+    const core = new MeshCore((m: any) => posted.push(m));
+    core.handle({ t: 'geo', entries: vol.palette.map((s: string, i: number) => [i, s, geoRes.geometry[s]]) });
+    core.handle({ t: 'volume', box, data: vol.data, center: [0, 64, 0] });
+    while (core.dirty.size) core.process(1e9);
+    const sections = posted.filter((m) => m.t === 'section');
+    assert.equal(sections.length, 1);
+    // flat grass layer at y=64: its top + the four diorama sides (+ bottom) are visible
+    assert.ok(sections[0].layers.opaque.count > 0);
+    assert.ok(posted.some((m) => m.t === 'loaded'));
 
-  // live edits arrive as {type:'blocks'} and re-mesh only the touched section
-  const blocks = new Promise<any>((r) => client.on('blocks', r));
-  const res = await hub.worldEdit.handle('Viewer', 'set', { selection: { min: [0, 65, 0], max: [1, 65, 0] }, block: 'gold_block' });
-  assert.ok(res);
-  const ev = decodeBlocks(await blocks);
-  assert.equal(ev.count, 2);
-  assert.ok(ev.palette.includes('minecraft:gold_block'));
-  const gi = vol.palette.length;
-  core.handle({ t: 'geo', entries: [[gi, 'minecraft:gold_block', (await client.api('/api/viewer/geometry', { body: { states: ['minecraft:gold_block'] } })).geometry['minecraft:gold_block']]] });
-  posted.length = 0;
-  core.handle({ t: 'edit', positions: ev.positions, states: Uint16Array.from(ev.states, (s: number) => (ev.palette[s] === 'minecraft:gold_block' ? gi : 0)), now: 5, animate: true });
-  while (core.dirty.size || core.pendingLight) core.process(1e9);
-  const re = posted.filter((m) => m.t === 'section');
-  assert.equal(re.length, 1, 'only the touched section is re-meshed');
-  assert.ok(Array.from(re[0].layers.opaque.born as Float32Array).some((b) => b >= 5), 'new blocks carry a birth time');
+    // live edits arrive as {type:'blocks'} and re-mesh only the touched section
+    const blocks = new Promise<any>((r) => client.on('blocks', r));
+    const res = await hub.worldEdit.handle('Viewer', 'set', { selection: { min: [0, 65, 0], max: [1, 65, 0] }, block: 'gold_block' });
+    assert.ok(res);
+    const ev = decodeBlocks(await blocks);
+    assert.equal(ev.count, 2);
+    assert.ok(ev.palette.includes('minecraft:gold_block'));
+    const gi = vol.palette.length;
+    core.handle({ t: 'geo', entries: [[gi, 'minecraft:gold_block', (await client.api('/api/viewer/geometry', { body: { states: ['minecraft:gold_block'] } })).geometry['minecraft:gold_block']]] });
+    posted.length = 0;
+    core.handle({ t: 'edit', positions: ev.positions, states: Uint16Array.from(ev.states, (s: number) => (ev.palette[s] === 'minecraft:gold_block' ? gi : 0)), now: 5, animate: true });
+    while (core.dirty.size || core.pendingLight) core.process(1e9);
+    const re = posted.filter((m) => m.t === 'section');
+    assert.equal(re.length, 1, 'only the touched section is re-meshed');
+    assert.ok(Array.from(re[0].layers.opaque.born as Float32Array).some((b) => b >= 5), 'new blocks carry a birth time');
 
-  // start a job like the wand does
-  const jobEv = new Promise<any>((r) => client.on('job', r));
-  const started = await client.request('start_job', { prompt: 'a tiny tower', anchor: [0, 64, 0], facing: 'east', size: '16x16x16', player: 'Viewer', style: 'medieval' });
-  assert.equal(started.job.facing, 'east');
-  assert.deepEqual(started.job.allowedBox, defaultAllowedBox([0, 64, 0], 'east', { x: 16, y: 16, z: 16 }, 12, { minY: -64, maxY: 319 }));
-  assert.deepEqual(started.job.allowedBox, clientAllowedBox([0, 64, 0], 'east', { x: 16, y: 16, z: 16 }, 12), 'client preview box = engine box');
-  assert.equal((await jobEv).job.id, started.job.id);
-  const job = hub.jobs.get(started.job.id)!;
-  const agent = new Promise<any>((r) => client.on('agent', r));
-  await waitFor(() => runner.events.get(job.id), 2000, 'runner start');
-  runner.events.get(job.id)!({ kind: 'tool', line: 'Building 3 ops: walls' });
-  const a = await agent;
-  assert.equal(a.jobId, job.id);
-  assert.equal(agentIcon(a.ev), 'cube');
-  // ask_player → reply
-  const asked = hub.jobs.ask(job, 'Which roof?', ['gable', 'dome'], 5000);
-  await waitFor(() => job.question, 1000, 'question');
-  const r = await client.request('reply', { jobId: job.id, text: 'dome' });
-  assert.equal(r.ok, true);
-  assert.equal(await asked, 'dome');
-  await client.request('cancel_job', { jobId: job.id });
-  await waitFor(() => !job.active, 2000, 'cancel');
-  assert.equal(job.state, 'cancelled');
+    // start a job like the wand does
+    const jobEv = new Promise<any>((r) => client.on('job', r));
+    const started = await client.request('start_job', { prompt: 'a tiny tower', anchor: [0, 64, 0], facing: 'east', size: '16x16x16', player: 'Viewer', style: 'medieval' });
+    assert.equal(started.job.facing, 'east');
+    assert.deepEqual(started.job.allowedBox, defaultAllowedBox([0, 64, 0], 'east', { x: 16, y: 16, z: 16 }, 12, { minY: -64, maxY: 319 }));
+    assert.deepEqual(started.job.allowedBox, clientAllowedBox([0, 64, 0], 'east', { x: 16, y: 16, z: 16 }, 12), 'client preview box = engine box');
+    assert.equal((await jobEv).job.id, started.job.id);
+    const job = hub.jobs.get(started.job.id)!;
+    jobId = job.id;
+    const agent = new Promise<any>((r) => client.on('agent', r));
+    await waitFor(() => runner.events.get(job.id), 2000, 'runner start');
+    runner.events.get(job.id)!({ kind: 'tool', line: 'Building 3 ops: walls' });
+    const a = await agent;
+    assert.equal(a.jobId, job.id);
+    assert.equal(agentIcon(a.ev), 'cube');
+    // ask_player → reply
+    const asked = hub.jobs.ask(job, 'Which roof?', ['gable', 'dome'], 5000);
+    await waitFor(() => job.question, 1000, 'question');
+    const r = await client.request('reply', { jobId: job.id, text: 'dome' });
+    assert.equal(r.ok, true);
+    assert.equal(await asked, 'dome');
+    await client.request('cancel_job', { jobId: job.id });
+    await waitFor(() => !job.active, 2000, 'cancel');
+    assert.equal(job.state, 'cancelled');
 
-  // errors come back as rejections
-  await assert.rejects(client.request('get_blocks', {}), /box required/);
+    // errors come back as rejections
+    await assert.rejects(client.request('get_blocks', {}), /box required/);
 
-  // reconnect after the socket drops
-  const reopened = new Promise<any>((r) => client.on('open', r));
-  client.ws.close(4000, 'test');
-  await reopened;
-  assert.equal(client.state, 'open');
-  client.close();
+    // reconnect after the socket drops
+    const reopened = new Promise<any>((r) => client.on('open', r));
+    client.ws.close(4000, 'test');
+    await reopened;
+    assert.equal(client.state, 'open');
+  } finally {
+    client.close();
+    const j = jobId ? hub.jobs.get(jobId) : undefined;
+    if (j?.active) await hub.jobs.cancel(j.id).catch(() => {});
+  }
 });
 
 test('codec helpers', () => {

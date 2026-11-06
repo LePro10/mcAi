@@ -4,7 +4,7 @@
 //
 //   node tools/vanilla-diff.mjs [--suite static|transform|connect|support|all] [--seed N]
 //                               [--scenes N] [--keep-server] [--stop-server] [--report FILE]
-//                               [--regenerate-probe]
+//                               [--regenerate-probe] [--heuristics]
 //
 // Suites:
 //   static     per-state facts executed in the real 26.3 classes (Probe.java: isFaceSturdy
@@ -81,11 +81,18 @@ if (serverSuites.length) {
 const liveFile = join(TOOLS_HOME, 'registry-live.json');
 const regs = [['offline', Registry.loadDefault()]];
 if (existsSync(liveFile)) regs.push(['live', new Registry(JSON.parse(readFileSync(liveFile, 'utf8')))]);
+// informational: the id heuristics alone (what modded blocks without physics get) — an empty
+// physics table disables both the hello and the bundled data
+const heuristicReg = new Registry({ ...Registry.loadDefault().data, physics: { format: 1, classes: [], blocks: {} } });
 if (suites.includes('static')) {
   report.suites.static = {};
   for (const [name, reg] of regs) {
     console.log(`\n# static (${name} registry)`);
     report.suites.static[name] = runStatic({ probe, reg });
+  }
+  if (flag('--heuristics')) {
+    console.log('\n# static (heuristics only, no physics — fallback for modded blocks)');
+    report.suites.static.heuristic = runStatic({ probe, reg: heuristicReg });
   }
 }
 if (suites.includes('transform')) {

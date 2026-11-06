@@ -10,6 +10,8 @@
 | `gen-mod-assets.mjs` | Generates the wand texture and the mod icon (pixel art, no dependencies) |
 | `client-gametest.sh` | Builds the mod and runs the client game tests in a real client window; screenshots → `docs/renders/mod-*.png` (gitignored scratch; images used by the docs are curated in `docs/images/`) |
 | `fake-engine.mjs` | Fake engine with an HTTP control API (records mod traffic, pushes job_update/notify); used by the client tests |
+| `vanilla-diff.mjs` | Differential test of the engine's vanilla rules (faces, connections, survival, rotate/mirror) against the real 26.3 server + classes — see `docs/VANILLA-DIFF.md` |
+| `vanilla-diff/gen-physics.mjs` | Regenerates `engine/data/physics-26.3.json` (registry physics for the simulation) from Probe.java's dump of the real 26.3 classes (`--check`: fail if stale) |
 
 Versions: Minecraft **26.3**, Java 25, Fabric Loader **0.20.1**, Fabric Loom **1.19.3**
 (plugin id `net.fabricmc.fabric-loom`), Fabric API **0.165.2+26.3**, Gradle 9.8.2 (wrapper, sha256-pinned).

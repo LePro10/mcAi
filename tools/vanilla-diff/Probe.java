@@ -25,6 +25,8 @@ import net.minecraft.world.level.block.ShulkerBoxBlock;
 import net.minecraft.world.level.block.SupportType;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.block.state.properties.Property;
+import net.minecraft.world.phys.shapes.BooleanOp;
+import net.minecraft.world.phys.shapes.Shapes;
 import net.minecraft.world.phys.shapes.VoxelShape;
 
 public class Probe {
@@ -54,6 +56,15 @@ public class Probe {
 		return '"' + s + '"';
 	}
 
+	// WallBlock.TEST_SHAPE_POST / TEST_SHAPES_WALL (private there; same construction)
+	static final VoxelShape TEST_POST = Block.column(2.0, 0.0, 16.0);
+	static final Map<Direction, VoxelShape> TEST_WALL = Shapes.rotateHorizontal(Block.boxZ(2.0, 16.0, 0.0, 9.0));
+
+	/** WallBlock.isCovered */
+	static boolean covered(VoxelShape above, VoxelShape test) {
+		return !Shapes.joinIsNotEmpty(test, above, BooleanOp.ONLY_FIRST);
+	}
+
 	public static void main(String[] args) throws Exception {
 		SharedConstants.tryDetectVersion();
 		Bootstrap.bootStrap();
@@ -74,6 +85,11 @@ public class Probe {
 						if (Block.isFaceFull(col, d)) colFace |= 1 << i;
 						if (Block.isFaceFull(sup, d)) supFace |= 1 << i;
 					}
+					// bottom face of the collision shape as WallBlock sees it from below (post + arms N,S,W,E as dir bits)
+					VoxelShape bottom = col.getFaceShape(Direction.DOWN);
+					boolean wallPost = covered(bottom, TEST_POST);
+					int wallArms = 0;
+					for (int i = 2; i < dirs.length; i++) if (covered(bottom, TEST_WALL.get(dirs[i]))) wallArms |= 1 << i;
 					boolean exception = block instanceof LeavesBlock || block instanceof ShulkerBoxBlock || s.is(Blocks.BARRIER)
 							|| s.is(Blocks.CARVED_PUMPKIN) || s.is(Blocks.JACK_O_LANTERN) || s.is(Blocks.MELON) || s.is(Blocks.PUMPKIN);
 					StringBuilder b = new StringBuilder();
@@ -91,6 +107,10 @@ public class Probe {
 					b.append(",\"replaceable\":").append(s.canBeReplaced());
 					b.append(",\"air\":").append(s.isAir());
 					b.append(",\"skylight\":").append(s.propagatesSkylightDown());
+					b.append(",\"signal\":").append(s.isSignalSource());
+					b.append(",\"colUp\":").append(!col.getFaceShape(Direction.UP).isEmpty());
+					b.append(",\"wallPost\":").append(wallPost);
+					b.append(",\"wallArms\":").append(wallArms);
 					if (!s.getProperties().isEmpty()) {
 						List<String> rot = new ArrayList<>();
 						for (Rotation r : new Rotation[] {Rotation.CLOCKWISE_90, Rotation.CLOCKWISE_180, Rotation.COUNTERCLOCKWISE_90}) rot.add(q(fmt(s.rotate(r))));

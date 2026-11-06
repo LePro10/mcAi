@@ -12,6 +12,7 @@ import { MeshCore } from '../../src/viewer/js/meshcore.js';
 import { compactGeometry, QUAD_STRIDE, type AtlasLookup } from '../../src/server/viewer-assets.ts';
 import { cuboid } from '../../src/assets/geometry.ts';
 import type { BlockGeometry } from '../../src/assets/geometry.ts';
+import { loadFactor } from '../load.ts';
 
 const STONE = 1, GLASS = 2, WATER = 3, TORCH = 4;
 
@@ -241,5 +242,7 @@ test('performance: a 128×96×128 terrain meshes in a couple of seconds', () => 
   const st = core.stats();
   assert.equal(st.sections, 8 * 6 * 8);
   assert.ok(st.quads > 16384, `${st.quads} quads`);
-  assert.ok(ms < 6000, `meshing took ${ms.toFixed(0)} ms`);
+  // parallel test files / a busy machine slow this down — scale the bound like the other timing tests
+  const bound = 6000 * loadFactor();
+  assert.ok(ms < bound, `meshing took ${ms.toFixed(0)} ms (bound ${bound.toFixed(0)} ms)`);
 });

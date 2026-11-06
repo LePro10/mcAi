@@ -93,10 +93,11 @@ Tests: `npm test` (= `node --test test/`).
       "properties": { "facing": ["north","south","west","east"], "half": ["top","bottom"], ... },
       "default": { "facing": "north", "half": "bottom", ... },
       "mapColor": "#8f7748",        // optional, used by renderer fallback
-      "solid": true,                // optional hints
+      "solid": true,                // optional hint (isCollisionShapeFullBlock; ignored when physics exist)
       "tags": ["minecraft:stairs", "minecraft:mineable/axe"]   // optional
     }
-  }
+  },
+  "physics": { "format": 1, "classes": [...], "blocks": {...} }   // optional, see §5 "Registry physics"
 }
 ```
 
@@ -149,7 +150,7 @@ Binary arrays are base64 of little-endian typed arrays.
 ### Mod → Engine (events / requests)
 | type | payload |
 |---|---|
-| `hello` | `modVersion, mcVersion, world, serverType ('integrated'\|'dedicated'), registry (BlockRegistry), dimensions: Array<string \| { id, minY, maxY, seaLevel? }>` (objects preferred; strings fall back to vanilla heights) → `{ engineVersion }` if it carries an `id` |
+| `hello` | `modVersion, mcVersion, world, serverType ('integrated'\|'dedicated'), registry (BlockRegistry incl. `physics`, see "Registry physics" below), dimensions: Array<string \| { id, minY, maxY, seaLevel? }>` (objects preferred; strings fall back to vanilla heights) → `{ engineVersion }` if it carries an `id` |
 | `build_request` | `player: PlayerInfo, prompt, selection?: Box, anchor: Vec3, facing: 'north'\|'south'\|'east'\|'west', options: { style?, mode: 'build'\|'plan', size? }, size?: {x,y,z}` (the mod's prompt GUI: `style` ∈ medieval/fantasy/japanese/modern/steampunk/nordic/desert/gothic/cozy, omitted for "auto"; without a wand selection the chosen size preset S/M/L/XL = 16³ / 32×24×32 / 48×40×48 / 96×64×96 is sent as `options.size` + `size` **and** as `selection` = the preset box laid out like the engine's default box) → response `{ jobId, allowedBox, selection }` (or `ok:false, error` e.g. "already has an active job"). `selection` = the player's selection (primary build area, `null` without one); `allowedBox` = what the agent may edit: selection + `selectionMargin` (config, default 8) on every side, extended down to the lowest ground/water bed in the footprint (−2, ≤ 32 below the floor) and up to ≥ `minBuildHeight` (32) above the floor (the same extension applies to the default box without selection). The mod draws both (margin fainter). **anchor = the ground block the wand targeted** (local y=0 is that layer); facing = the player's horizontal look direction |
 | `job_control` | `action: 'cancel'\|'undo'\|'redo'\|'confirm'\|'reject', player, jobId?` → `{ message, jobId? }`. Without jobId the player's active (or latest) job is used. undo/redo = the player's undo stack (a whole AI job is one step). confirm/reject answer a pending `ask_player` with "yes"/"no" |
 | `player_reply` | `player, jobId?, text` (answer to an agent question; the agent asks in chat with numbered options → `/mcai reply <number or text>`) → `{ message }` |
@@ -222,6 +223,45 @@ Block placement in the mod (`mod/…/world/PlaceBlocksTask.java`):
   answers are dropped. The mod reconnects (1 s … 30 s backoff) and sends a fresh `hello`.
 * Measured on the dedicated test server (`tools/mod-protocol-test.mjs`): 2 000 000 blocks in one
   37 MB message in ≈ 12 s at a steady 20 TPS (≈ 3.3 s of server-thread work spread over ~230 ticks).
+
+### Registry physics (`registry.physics`, format 1)
+
+The engine never guesses block shapes: sturdy faces, wall coverage, conductors etc. come from the real
+block classes. The mod computes them per state in `RegistryDump.physics` (empty world, `BlockPos.ZERO`);
+the simulation uses `engine/data/physics-26.3.json`, generated from the real 26.3 server classes by
+`tools/vanilla-diff/gen-physics.mjs` (Probe.java). Both use the same algorithm
+(`engine/src/core/physics.ts buildPhysicsTable`), and `tools/vanilla-diff.mjs --suite static` checks
+both tables state by state against the real classes.
+
+```jsonc
+"physics": {
+  "format": 1,
+  "classes": [[63, 63, 63, 63, 63, 511], …],     // distinct facts: [full, center, rigid, collision, support, flags]
+  "blocks": {
+    "minecraft:stone": 0,                         // every state has class 0
+    "minecraft:oak_stairs": {                     // only properties that change the facts, sorted by name,
+      "p": [["facing", ["north","south","west","east"]], ["half", ["top","bottom"]], …],  // values as enumerated
+      "c": [57, 58, …]                            // class per combination, mixed radix, first property slowest
+    }
+  }
+}
+```
+
+* `full` / `center` / `rigid`: 6-bit masks of `isFaceSturdy(dir, SupportType.FULL|CENTER|RIGID)`;
+  `collision` / `support`: `Block.isFaceFull(collisionShape|blockSupportShape, dir)`. Bit i =
+  `Direction.values()[i]` = down, up, north, south, west, east.
+* `flags`: 1 `isSolidRender`, 2 legacy `isSolid()`, 4 `isRedstoneConductor`, 8 `canBeReplaced`,
+  16 `isCollisionShapeFullBlock`, 32 `isSignalSource`, 64 collision top face non-empty, 128
+  `propagatesSkylightDown`, 256 bottom collision face covers `WallBlock.TEST_SHAPE_POST`, 512/1024/2048/4096
+  … covers `TEST_SHAPES_WALL[north|south|west|east]` (a wall below gets a tall side).
+* Class id −1 = the mod could not compute the state without a real world (modded blocks) → engine heuristics.
+* Size: 1 286 blocks, 168 classes ≈ 165 kB of JSON (≈ 10 kB gzip) in a ≈ 920 kB hello registry. The mod
+  computes it once per server start (≈ 0.3–0.9 s on the server thread, shape facts cached by identity) and
+  reuses it for every hello.
+* Backward compatible: without `physics` (older mods) the engine uses the bundled 26.3 table for the
+  blocks it knows and id heuristics for the rest; with `physics`, blocks missing from it use heuristics.
+  `Registry.physics(state)` exposes the facts; `isFullSolid` = all faces sturdy or a full-cube collision
+  shape, `isTransparent` = `!isSolidRender`.
 
 ### Engine discovery & auto-start (mod)
 

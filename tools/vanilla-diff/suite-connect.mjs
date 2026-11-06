@@ -5,16 +5,20 @@
 //
 // Notes on faithfulness:
 //  * input order is top-down (the mod's shape pass follows input order; a wall's tall/low/up
-//    depends on the final state of the block above, so top-down = the vanilla fixed point);
+//    depends on the final state of the block above, so top-down = the vanilla fixed point), and
+//    stairs first within a layer (a pane next to a stair placed later would see its old shape);
 //  * the mod only accepts shape results that keep the block id, so every scene block that needs
 //    support gets it (redstone wire only on vanilla canSurviveOn blocks, doors as two halves …);
 //  * no fluids, no gravity blocks, leaves persistent, waterlogged=false, and no self-activating
 //    redstone (observers, daylight detectors, sculk sensors, TNT, pistons, dispensers): their
 //    scheduled ticks / vibrations cause real neighbour updates that cascade (wires popping off
 //    trapdoors that a powered wire opened …) and make runs non-deterministic;
-//  * blocks vanilla re-shapes that the engine does not model at all (snowy grass, chests, …) are
-//    reported separately ("unmodelled").
+//  * the engine side runs the simulation's pipeline: soilConversions (farmland → dirt under solid
+//    blocks; dirt paths have no properties, so the mod never shape-updates them) then solveConnections;
+//  * blocks vanilla re-shapes that the engine does not model at all (tripwire, pale moss carpet
+//    sides, …) are reported separately ("unmodelled").
 import { solveConnections } from '../../engine/src/core/connect.ts';
+import { soilConversions } from '../../engine/src/core/support.ts';
 import { parseBlockState } from '../../engine/src/core/blockstate.ts';
 import { Batch, rng } from './lib.mjs';
 import { bit } from './probe.mjs';
@@ -358,7 +362,10 @@ export async function runConnect({ engine, reg, probe, seed = 1, scenes = 240, l
 
   // 2. place all scenes, top-down, with vanilla shape updates
   const b = new Batch();
-  const all = list.flatMap((sc) => sc.blocks).sort((a, bb) => bb[1] - a[1]);
+  // top-down; within a layer stairs first: their shape only depends on neighbouring stairs'
+  // facing/half (final in one pass), and fences/panes/walls read the stair's final faces
+  const isStair = (s) => /_stairs\[/.test(s);
+  const all = list.flatMap((sc) => sc.blocks).sort((a, bb) => bb[1] - a[1] || (isStair(bb[3]) ? 1 : 0) - (isStair(a[3]) ? 1 : 0));
   for (const [x, y, z, s] of all) b.add(x, y, z, s);
   const res = await engine.setBlocks(b, { updateShapes: true });
   await engine.waitTicks(3);
@@ -367,8 +374,13 @@ export async function runConnect({ engine, reg, probe, seed = 1, scenes = 240, l
   // 3. engine prediction
   const scene = new Map(all.map(([x, y, z, s]) => [`${x},${y},${z}`, s]));
   const get = (x, y, z) => scene.get(`${x},${y},${z}`) ?? (y === y0 - 1 ? GROUND : y < y0 - 1 ? 'minecraft:dirt' : 'minecraft:air');
-  const changes = solveConnections(get, all.map(([x, y, z]) => [x, y, z]), reg);
+  // same pipeline as the simulation (sim-backend): farmland/dirt paths under solid blocks become dirt
+  // (vanilla scheduled tick), then neighbour shape updates
   const eng = new Map(scene);
+  const engGet = (x, y, z) => eng.get(`${x},${y},${z}`) ?? get(x, y, z);
+  const positions = all.map(([x, y, z]) => [x, y, z]);
+  for (const [x, y, z, s] of soilConversions(engGet, positions, reg, { paths: false })) { eng.set(`${x},${y},${z}`, s); positions.push([x, y, z]); }
+  const changes = solveConnections(engGet, positions, reg);
   for (const [x, y, z, s] of changes) eng.set(`${x},${y},${z}`, s);
 
   // 4. compare every scene position + the ground under each scene

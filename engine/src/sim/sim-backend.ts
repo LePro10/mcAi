@@ -10,6 +10,7 @@ import type {
 } from '../core/types.ts';
 import { Registry } from '../core/registry.ts';
 import { solveConnections } from '../core/connect.ts';
+import { soilConversions } from '../core/support.ts';
 import { blockId } from '../core/blockstate.ts';
 import { TerrainGen, MIN_Y, MAX_Y, SEA, GEN_VERSION } from './terrain.ts';
 import { World, SECTIONS, type Chunk } from './world.ts';
@@ -263,6 +264,15 @@ export class SimBackend implements WorldBackend {
     if ((opts.updateShapes ?? true) && changed.length) {
       try {
         const positions: Vec3[] = changed.map((i) => [pos[i * 3], pos[i * 3 + 1], pos[i * 3 + 2]]);
+        // like the real game's scheduled ticks: farmland under solid blocks becomes dirt (its
+        // neighbours then re-connect, e.g. a wall next to the new dirt). Dirt paths have no
+        // properties, so the mod's shape pass never updates them → they stay (EditSession converts them)
+        for (const [x, y, z, s] of soilConversions((x, y, z) => W.get(x, y, z), positions, this.reg, { paths: false })) {
+          if (y < MIN_Y || y > MAX_Y) continue;
+          W.setId(x, y, z, W.id(s));
+          extra.push([x, y, z, s]);
+          positions.push([x, y, z]);
+        }
         const upd = solveConnections((x, y, z) => W.get(x, y, z), positions, this.reg);
         for (const [x, y, z, s] of upd) {
           if (y < MIN_Y || y > MAX_Y) continue;

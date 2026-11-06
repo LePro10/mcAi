@@ -1,19 +1,28 @@
 // Block registry: validation, canonicalization, fuzzy search and shape heuristics.
 // See docs/ENGINE-API.md (core-geometry) and docs/ARCHITECTURE.md §3.
 //
-// Heuristic decisions (documented here because connections, masks and the renderer rely on them):
-//  * isFullSolid = "occupies the full 1x1x1 cube with a full (sturdy) face on every side".
-//    Glass, leaves, ice, shulker boxes, spawners count as full. Stairs, slabs (except
-//    type=double), fences, walls, panes, doors, trapdoors, plants, carpets, rails, chests,
-//    beds, lanterns, heads, farmland/dirt path, snow (except layers=8), extended pistons,
-//    liquids and air do not.
+// Solidity (masks, terrain analysis, connections and support rely on it):
+//  * Per-state facts come from the "registry physics" (physics.ts): the mod's hello registry
+//    carries them (computed from the real block classes); otherwise the bundled table
+//    engine/data/physics-26.3.json (generated from the real 26.3 server) is used for the blocks it
+//    knows. `physics(state)` exposes the raw facts (sturdy faces FULL/CENTER/RIGID, collision and
+//    support faces, solid render, legacy isSolid, conductor, signal source, wall coverage, …).
+//  * isFullSolid = "occupies the full cube": every face FULL-sturdy (stone, glass, mud, soul sand,
+//    snow[layers=8], shulker boxes …) OR a full-cube collision shape (leaves, chorus flower — they
+//    look and walk like full blocks but have NO sturdy faces: support.ts/connect.ts use the face
+//    data, not this predicate). Stairs, slabs (except double), fences, walls, panes, doors,
+//    trapdoors, plants, carpets, rails, chests, beds, lanterns, heads, farmland/dirt path,
+//    powder snow, extended pistons, liquids and air do not.
 //    Vanilla fences/walls/panes do NOT connect to leaves, pumpkins, melons, barriers or
-//    shulker boxes even though those are full cubes (Block.isExceptionForConnection) — that
-//    exception lives in connect.ts, not here.
-//  * isTransparent = "does not fully hide the faces of neighbours" (rendering / face culling):
-//    every non-full block plus glass, leaves, ice, slime, spawners, beacons, grates, barriers.
+//    shulker boxes (Block.isExceptionForConnection) — that exception lives in connect.ts.
+//  * isTransparent = "does not fully hide the faces of neighbours" = !isSolidRender: glass,
+//    leaves, ice, slime, spawners, beacons, grates, barriers, shulker boxes and every non-full block.
+//  * Blocks without physics (modded blocks with an older mod) use the id heuristics below.
+//  * canonical() keeps vanilla defaults (leaves: persistent=false); EditSession.set makes placed
+//    leaves persistent (session.ts withPersistentLeaves) so builds never decay.
 import { readFileSync } from 'node:fs';
 import type { BlockInfo, BlockRegistry } from './types.ts';
+import { PF, PhysicsIndex, type PhysClass, type PhysicsTable } from './physics.ts';
 import { blockId, formatBlockState, normalizeId, parseBlockState, BlockStateError } from './blockstate.ts';
 
 export class RegistryError extends Error {
@@ -247,6 +256,20 @@ interface Entry {
 
 const MAX_CACHE = 200_000;
 let defaultRegistry: Registry | null = null;
+let bundled: PhysicsIndex | null | undefined;
+
+/** engine/data/physics-26.3.json (lazy; null if missing) */
+export function bundledPhysics(): PhysicsIndex | null {
+  if (bundled === undefined) {
+    try {
+      const url = new URL('../../data/physics-26.3.json', import.meta.url);
+      bundled = new PhysicsIndex(JSON.parse(readFileSync(url, 'utf8')) as PhysicsTable);
+    } catch {
+      bundled = null;
+    }
+  }
+  return bundled;
+}
 
 export class Registry {
   readonly version: string;
@@ -255,11 +278,22 @@ export class Registry {
   private canonCache = new Map<string, string>();
   private fullCache = new Map<string, boolean>();
   private transCache = new Map<string, boolean>();
+  private physCache = new Map<string, PhysClass | null>();
   private idList: string[];
+  /** physics sent with the registry (hello) — preferred over the bundled table */
+  private ownPhysics: PhysicsIndex | null;
 
   constructor(data: BlockRegistry) {
     this.data = data;
     this.version = data.version;
+    this.ownPhysics = null;
+    if (data.physics && typeof data.physics === 'object' && Array.isArray(data.physics.classes)) {
+      try {
+        this.ownPhysics = new PhysicsIndex(data.physics);
+      } catch {
+        this.ownPhysics = null;
+      }
+    }
     for (const [rawId, info] of Object.entries(data.blocks)) {
       const id = normalizeId(rawId);
       const short = id.startsWith('minecraft:') ? id.slice(10) : id;
@@ -272,6 +306,8 @@ export class Registry {
         propNames: Object.keys(info.properties).sort(),
         tags,
         tokens: tokenize(short),
+        // the `solid` hint (isCollisionShapeFullBlock, older mods) only matters for blocks without
+        // physics; it is wrong for mud / soul sand (sturdy but 14/16 collision) — physics wins
         full: info.solid === false ? false : idFull(id),
         seeThrough: SEE_THROUGH_RE.test(short),
       });
@@ -432,7 +468,48 @@ export class Registry {
     return scored.slice(0, limit).map((s) => s[2].id);
   }
 
-  /** Heuristic: occupies the full cube with sturdy faces (see header comment). */
+  /**
+   * Physical facts of a state (see physics.ts): [full, center, rigid, collision, support, flags]
+   * direction masks + flag bits. null = no data (unknown / modded block without physics).
+   */
+  physics(state: string): PhysClass | null {
+    let v = this.physCache.get(state);
+    if (v !== undefined) return v;
+    v = this.computePhysics(state);
+    if (this.physCache.size >= MAX_CACHE) this.physCache.clear();
+    this.physCache.set(state, v);
+    return v;
+  }
+
+  /** whether physics data is available at all (hello physics or the bundled table) */
+  hasPhysics(): boolean {
+    return this.ownPhysics !== null || bundledPhysics() !== null;
+  }
+
+  private computePhysics(state: string): PhysClass | null {
+    const brace = state.indexOf('{');
+    const head = brace >= 0 ? state.slice(0, brace) : state;
+    const e = this.entries.get(blockId(head));
+    if (!e) return null;
+    let props: Record<string, string> = {};
+    if (head.includes('[')) {
+      try {
+        props = parseBlockState(head).props;
+      } catch {
+        return null;
+      }
+    }
+    if (e.propNames.some((k) => !(k in props))) props = { ...e.info.default, ...props };
+    const own = this.ownPhysics;
+    if (own) {
+      if (own.has(e.id)) return own.get(e.id, props);
+      // hello physics present but not for this block → no data (never mix tables for a block)
+      return null;
+    }
+    return bundledPhysics()?.get(e.id, props) ?? null;
+  }
+
+  /** Occupies the full cube: all faces sturdy or a full-cube collision shape (see header comment). */
   isFullSolid(state: string): boolean {
     let v = this.fullCache.get(state);
     if (v === undefined) {
@@ -448,7 +525,8 @@ export class Registry {
     let v = this.transCache.get(state);
     if (v === undefined) {
       const e = this.entries.get(blockId(state));
-      v = !e ? true : e.seeThrough || !this.isFullSolid(state);
+      const ph = e ? this.physics(state) : null;
+      v = !e ? true : ph ? (ph[5] & PF.SOLID_RENDER) === 0 : e.seeThrough || !this.isFullSolid(state);
       if (this.transCache.size >= MAX_CACHE) this.transCache.clear();
       this.transCache.set(state, v);
     }
@@ -459,6 +537,8 @@ export class Registry {
     const id = blockId(state);
     const e = this.entries.get(id);
     if (!e) return false;
+    const ph = this.physics(state);
+    if (ph) return ph[0] === 63 || (ph[5] & PF.COLLISION_FULL) !== 0;
     const short = e.short;
     if (short.endsWith('_slab')) return propOf(state, 'type') === 'double';
     if (short === 'snow') return propOf(state, 'layers') === '8';

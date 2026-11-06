@@ -7,20 +7,29 @@
 //  IronBarsBlock.attachsTo(n, sturdy) = !isExceptionForConnection(n) && sturdy || n is bars/pane || n is #walls
 //  WallBlock.connectsTo(n, sturdy, dir) = n is #walls || !isExceptionForConnection(n) && sturdy
 //        || n is bars/pane || (n is fence gate && gate axis ⟂ dir)
-//     side = connected ? (block above covers that side ? tall : low) : none
+//     side = connected ? (the bottom collision face of the block above covers that arm
+//            (WallBlock.TEST_SHAPES_WALL: x 7–9, z 0–9 toward the side) ? tall : low) : none
 //     up   = wall above has post || sides not a straight line || (not straight-tall && above is
-//            #wall_post_override or covers the post)
+//            #wall_post_override or its bottom collision face covers the centre column 7–9)
 //  FenceGateBlock in_wall = a wall on either side of the gate (along its span)
 //  StairBlock.getStairsShape (behind → outer, front → inner)
-//  RedStoneWireBlock (basic): sides/up from neighbouring wire and signal sources; isolated → cross
+//  RedStoneWireBlock.getConnectionState: sides/up from neighbouring wire and signal sources; a
+//     wire with connections on one axis extends to a line; an isolated wire stays a dot if it was
+//     a dot (all sides none, the default state), otherwise it becomes a cross
+//  SnowyBlock (grass_block, podzol, mycelium): snowy = the block above is #snow
+//  TripWireBlock: sides connect to tripwire and to hooks facing away
+//  MossyCarpetBlock (pale moss carpet): sides on attachable faces (low; tall under a side-carpet)
 //  ChorusPlantBlock: connects to chorus plant/flower, down also to end stone
 //  isExceptionForConnection: leaves, barrier, carved pumpkin, jack o'lantern, melon, pumpkin, shulker boxes
 //
-// "sturdy face" heuristic: full solid blocks (registry.isFullSolid), double slabs, the full back
-// face(s) of stairs, the bottom face of bottom slabs/stairs, the top face of top slabs/stairs.
+// Sturdy faces, wall coverage, redstone conductors and signal sources come from the registry
+// physics (physics.ts — the real game's isFaceSturdy / collision shapes / isRedstoneConductor /
+// isSignalSource). Blocks without physics use heuristics: full solid blocks, double slabs, the
+// full back face(s) of stairs, the bottom face of bottom slabs/stairs, the top face of top slabs/stairs.
 import type { Vec3 } from './types.ts';
 import type { Registry } from './registry.ts';
 import { blockId, formatBlockState, isAir, parseBlockState } from './blockstate.ts';
+import { PF, WALL_ARM, type PhysClass } from './physics.ts';
 
 export type Dir4 = 'north' | 'east' | 'south' | 'west';
 const DIRS4: Dir4[] = ['north', 'east', 'south', 'west'];
@@ -83,7 +92,7 @@ function canTakeShape(
 // ---------------------------------------------------------------------------------------
 // classification (cached per state string)
 
-type Kind = 'fence' | 'pane' | 'wall' | 'stairs' | 'gate' | 'wire' | 'chorus' | 'other';
+type Kind = 'fence' | 'pane' | 'wall' | 'stairs' | 'gate' | 'wire' | 'chorus' | 'snowy' | 'tripwire' | 'mosscarpet' | 'other';
 
 interface Cls {
   kind: Kind;
@@ -96,7 +105,12 @@ interface Cls {
   props: Record<string, string>;
   /** state without SNBT */
   head: string;
+  /** registry physics (null = heuristics) */
+  ph: PhysClass | null;
 }
+
+/** physics face bits (Direction.values(): down, up, north, south, west, east) */
+const PBIT = { down: 1, up: 2, north: 4, south: 8, west: 16, east: 32 } as const;
 
 const EXCEPTION_IDS = new Set([
   'minecraft:barrier',
@@ -139,6 +153,9 @@ export class Connector {
     else if (short.endsWith('_pane') || reg.hasTag(id, 'minecraft:bars') || short === 'iron_bars') kind = 'pane';
     else if (short === 'redstone_wire') kind = 'wire';
     else if (short === 'chorus_plant') kind = 'chorus';
+    else if (reg.info(id)?.properties.snowy) kind = 'snowy';
+    else if (short === 'tripwire') kind = 'tripwire';
+    else if (short === 'pale_moss_carpet') kind = 'mosscarpet';
     let props: Record<string, string> = {};
     if (head.includes('[')) {
       try {
@@ -159,6 +176,7 @@ export class Connector {
         EXCEPTION_IDS.has(id) || reg.hasTag(id, 'minecraft:leaves') || reg.hasTag(id, 'minecraft:shulker_boxes') || short.endsWith('shulker_box'),
       props,
       head,
+      ph: air ? null : reg.physics(head),
     };
     if (this.cls.size >= MAX_CACHE) this.cls.clear();
     this.cls.set(state, c);
@@ -172,6 +190,7 @@ export class Connector {
 
   private sturdy(c: Cls, face: Dir4 | 'up' | 'down'): boolean {
     if (c.air) return false;
+    if (c.ph) return (c.ph[0] & PBIT[face]) !== 0;
     if (c.full) return true;
     if (c.short.endsWith('_slab')) {
       const t = c.props.type;
@@ -194,6 +213,7 @@ export class Connector {
 
   private coversPost(c: Cls): boolean {
     if (c.air) return false;
+    if (c.ph) return (c.ph[5] & PF.WALL_POST) !== 0;
     if (this.sturdy(c, 'down')) return true;
     if (c.kind === 'fence' || c.kind === 'pane') return true;
     if (c.kind === 'wall') return c.props.up === 'true';
@@ -204,6 +224,22 @@ export class Connector {
   private gateConnects(gate: Cls, dir: Dir4): boolean {
     // gate spans perpendicular to its facing; connects to neighbours along its span
     return AXIS[gate.props.facing as Dir4] === AXIS[CW[dir]];
+  }
+
+  /** isRedstoneConductor (physics; heuristic: full && !transparent) */
+  isConductor(state: string): boolean {
+    return this.conductor(this.classify(state));
+  }
+
+  /** what a wall below this block sees: tall arms per side and whether the post is covered */
+  wallCover(state: string): { post: boolean; arms: Record<Dir4, boolean> } {
+    const c = this.classify(state);
+    const arm = (d: Dir4) => {
+      if (c.air) return false;
+      if (c.ph) return (c.ph[5] & WALL_ARM[d]) !== 0;
+      return this.sturdy(c, 'down') || (c.kind === 'wall' && !!c.props[d] && c.props[d] !== 'none');
+    };
+    return { post: this.coversPost(c), arms: { north: arm('north'), east: arm('east'), south: arm('south'), west: arm('west') } };
   }
 
   /** true if the block can change through a neighbour shape update */
@@ -227,6 +263,21 @@ export class Connector {
         return this.updateWire(get, x, y, z, c);
       case 'chorus':
         return this.updateChorus(get, x, y, z, c);
+      case 'tripwire': {
+        // TripWireBlock.shouldConnectTo: a hook facing away from us, or more tripwire
+        const p: Record<string, string> = {};
+        for (const d of DIRS4) {
+          const n = this.classify(get(x + OFF[d][0], y, z + OFF[d][1]));
+          p[d] = String(n.short === 'tripwire_hook' ? n.props.facing === OPP[d] : n.short === 'tripwire');
+        }
+        return this.result(c, `${p.north}${p.east}${p.south}${p.west}`, () => p);
+      }
+      case 'mosscarpet':
+        return this.updateMossCarpet(get, x, y, z, c);
+      case 'snowy': {
+        const snowy = String(this.reg.hasTag(this.classify(get(x, y + 1, z)).id, 'minecraft:snow'));
+        return this.result(c, snowy, () => ({ snowy }));
+      }
       default:
         return null;
     }
@@ -274,6 +325,7 @@ export class Connector {
     const full = this.sturdy(ac, 'down');
     const side = (conn: boolean, d: Dir4) => {
       if (!conn) return 'none';
+      if (ac.ph) return (ac.ph[5] & WALL_ARM[d]) !== 0 ? 'tall' : 'low';
       if (full) return 'tall';
       return ac.kind === 'wall' && ac.props[d] && ac.props[d] !== 'none' ? 'tall' : 'low';
     };
@@ -319,11 +371,21 @@ export class Connector {
       return dir !== null && (f === dir || f === OPP[dir]);
     }
     if (c.short === 'observer') return dir !== null && c.props.facing === dir;
-    return dir !== null && SIGNAL_SOURCES_RE.test(c.short);
+    if (dir === null) return false;
+    if (c.ph) return (c.ph[5] & PF.SIGNAL_SOURCE) !== 0;
+    return SIGNAL_SOURCES_RE.test(c.short);
   }
 
+  /** isRedstoneConductor */
   private conductor(c: Cls): boolean {
+    if (c.air) return false;
+    if (c.ph) return (c.ph[5] & PF.CONDUCTOR) !== 0;
     return c.full && !this.reg.isTransparent(c.head);
+  }
+
+  /** vanilla RedStoneWireBlock.canSurviveOn (+ trapdoors: wire may climb onto them) */
+  private wirePlaceableOn(n: Cls): boolean {
+    return this.sturdy(n, 'up') || n.short === 'hopper' || n.short.endsWith('_trapdoor');
   }
 
   private updateWire(get: (x: number, y: number, z: number) => string, x: number, y: number, z: number, c: Cls): string {
@@ -333,16 +395,18 @@ export class Connector {
       const [dx, dz] = OFF[d];
       const n = this.classify(get(x + dx, y, z + dz));
       if (!aboveConductor) {
-        const canSurvive = this.sturdy(n, 'up') || n.short.endsWith('_trapdoor');
-        if (canSurvive && this.wireConnectsTo(this.classify(get(x + dx, y + 1, z + dz)), null)) {
+        if (this.wirePlaceableOn(n) && this.wireConnectsTo(this.classify(get(x + dx, y + 1, z + dz)), null)) {
           side[d] = this.sturdy(n, OPP[d]) ? 'up' : 'side';
           continue;
         }
       }
       if (this.wireConnectsTo(n, d) || (!this.conductor(n) && this.wireConnectsTo(this.classify(get(x + dx, y - 1, z + dz)), null))) side[d] = 'side';
     }
-    // vanilla: a wire with connections on only one axis extends to a line; no connections → cross
+    // vanilla getConnectionState: a dot (all none) without connections stays a dot; otherwise a
+    // wire with connections on only one axis extends to a line and no connections → cross
     const n = side.north !== 'none', s = side.south !== 'none', e = side.east !== 'none', w = side.west !== 'none';
+    const wasDot = c.props.north === 'none' && c.props.south === 'none' && c.props.east === 'none' && c.props.west === 'none';
+    if (wasDot && !n && !s && !e && !w) return this.result(c, 'dot', () => side);
     const noNS = !n && !s;
     const noEW = !e && !w;
     if (!w && noNS) side.west = 'side';
@@ -350,6 +414,27 @@ export class Connector {
     if (!n && noEW) side.north = 'side';
     if (!s && noEW) side.south = 'side';
     return this.result(c, `${side.north},${side.east},${side.south},${side.west}`, () => side);
+  }
+
+  /** MossyCarpetBlock.getUpdatedState(createSides = false): sides grow on attachable walls */
+  private updateMossCarpet(get: (x: number, y: number, z: number) => string, x: number, y: number, z: number, c: Cls): string {
+    const base = c.props.bottom === 'true';
+    const above = this.classify(get(x, y + 1, z));
+    const below = this.classify(get(x, y - 1, z));
+    const p: Record<string, string> = {};
+    for (const d of DIRS4) {
+      const n = this.classify(get(x + OFF[d][0], y, z + OFF[d][1]));
+      // MultifaceBlock.canAttachTo: the neighbour's face toward us is a full support or collision face
+      const b = PBIT[OPP[d]];
+      const attach = n.air ? false : n.ph ? ((n.ph[3] | n.ph[4]) & b) !== 0 : this.sturdy(n, OPP[d]);
+      let side = attach ? (base ? 'low' : c.props[d] ?? 'none') : 'none';
+      if (side === 'low') {
+        if (above.short === 'pale_moss_carpet' && above.props[d] !== 'none' && above.props.bottom !== 'true') side = 'tall';
+        if (!base && below.short === 'pale_moss_carpet' && below.props[d] === 'none') side = 'none';
+      }
+      p[d] = side;
+    }
+    return this.result(c, `${p.north},${p.east},${p.south},${p.west},${above.head},${below.head}`, () => p);
   }
 
   private updateChorus(get: (x: number, y: number, z: number) => string, x: number, y: number, z: number, c: Cls): string {

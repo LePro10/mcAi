@@ -136,7 +136,10 @@ test('stairs shapes follow vanilla getStairsShape', () => {
 });
 
 test('redstone wire (basic) and chorus plants', () => {
-  assert.equal(sides(props(world([[0, 0, 0, 'redstone_wire']]), 0, 0, 0)), 'side,side,side,side'); // isolated → cross
+  // vanilla getConnectionState: an isolated dot (the default state) stays a dot, any other isolated wire → cross
+  assert.equal(sides(props(world([[0, 0, 0, 'redstone_wire']]), 0, 0, 0)), 'none,none,none,none');
+  assert.equal(sides(props(world([[0, 0, 0, 'redstone_wire[north=side,east=side,south=side,west=side]']]), 0, 0, 0)), 'side,side,side,side');
+  assert.equal(sides(props(world([[0, 0, 0, 'redstone_wire[north=side,south=side]']]), 0, 0, 0)), 'side,side,side,side');
   let w = world([[0, 0, 0, 'redstone_wire'], [1, 0, 0, 'redstone_wire'], [2, 0, 0, 'redstone_wire']]);
   assert.equal(sides(props(w, 1, 0, 0)), 'none,side,none,side');
   assert.equal(sides(props(w, 0, 0, 0)), 'none,side,none,side'); // one-sided line extends
@@ -146,8 +149,10 @@ test('redstone wire (basic) and chorus plants', () => {
   w = world([[0, 0, 0, 'redstone_wire'], [1, 0, 0, 'stone'], [1, 1, 0, 'redstone_wire']]);
   assert.equal(props(w, 0, 0, 0).east, 'up');
   w = world([[0, 0, 0, 'redstone_wire'], [1, 0, 0, 'repeater[facing=north]']]);
-  assert.equal(props(w, 0, 0, 0).east, 'side'); // only connected along axis? (repeater faces north → not east)
-  // ^ isolated/only-other-axis → cross rule turns east on; check repeater axis explicitly:
+  assert.equal(props(w, 0, 0, 0).east, 'none'); // repeater faces north → no east connection; the dot stays a dot
+  w = world([[0, 0, 0, 'redstone_wire[north=side,east=side,south=side,west=side]'], [1, 0, 0, 'repeater[facing=north]']]);
+  assert.equal(props(w, 0, 0, 0).east, 'side'); // a non-dot without connections becomes a cross
+  // check repeater axis explicitly:
   w = world([[0, 0, 0, 'redstone_wire'], [0, 0, -1, 'repeater[facing=north]'], [5, 0, 5, 'stone']]);
   assert.equal(sides(props(w, 0, 0, 0)), 'side,none,side,none');
   w = world([[0, 0, 0, 'redstone_wire'], [1, 0, 0, 'repeater[facing=north]'], [0, 0, -1, 'redstone_wire']]);

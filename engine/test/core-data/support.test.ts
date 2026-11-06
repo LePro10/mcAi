@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { EditSession, History } from '../../src/core/session.ts';
 import { AIR } from '../../src/core/blockstate.ts';
-import { checkSupportAt, faceSupport, removedState, resolveSupport, FULL, CENTER, NONE } from '../../src/core/support.ts';
+import { checkSupportAt, faceSupport, removedState, resolveSupport, FULL, CENTER, RIGID, NONE } from '../../src/core/support.ts';
 import { MemBackend, reg } from './helpers.ts';
 
 const STONE = 'minecraft:stone';
@@ -27,7 +27,15 @@ test('face support classification', () => {
   assert.equal(faceSupport(C('iron_chain[axis=y]'), 'down', R), CENTER);
   assert.equal(faceSupport(C('oak_stairs[facing=north,half=bottom,shape=straight]'), 'north', R), FULL);
   assert.equal(faceSupport(C('oak_stairs[facing=north,half=bottom,shape=straight]'), 'south', R), NONE);
-  assert.equal(faceSupport(C('oak_leaves[persistent=true]'), 'south', R), FULL);
+  // vanilla LeavesBlock: empty block-support shape → no sturdy face (torches, ladders, doors pop on leaves)
+  assert.equal(faceSupport(C('oak_leaves[persistent=true]'), 'south', R), NONE);
+  assert.equal(faceSupport(C('oak_leaves[persistent=true]'), 'up', R), NONE);
+  assert.equal(faceSupport(C('dirt_path'), 'up', R), NONE); // 15/16 tall: no sturdy top
+  assert.equal(faceSupport(C('dirt_path'), 'down', R), FULL);
+  assert.equal(faceSupport(C('mud'), 'up', R), FULL);
+  assert.equal(faceSupport(C('composter'), 'up', R), RIGID);
+  assert.equal(faceSupport(C('honey_block'), 'up', R), NONE);
+  assert.equal(faceSupport(C('honey_block'), 'down', R), CENTER);
   assert.equal(faceSupport(C('glass'), 'east', R), FULL);
   assert.equal(faceSupport(C('oak_trapdoor[open=true,facing=north]'), 'south', R), FULL);
 });
@@ -86,7 +94,7 @@ test('lanterns, torches, candles: hanging needs a block above, standing a post o
       [4, 1, 0, 'lantern'],
       [6, 1, 0, 'torch'],
       [8, 1, 0, 'torch'],
-      [4, 2, 0, 'candle[lit=true]'], // on the lantern → no
+      [4, 2, 0, 'candle[lit=true]'], // on the lantern: vanilla candles never pop (no survival check in updateShape)
       [8, 5, 0, 'sea_lantern'], // a full block, not a lantern
     ],
   );
@@ -96,7 +104,7 @@ test('lanterns, torches, candles: hanging needs a block above, standing a post o
   assert.match(be.at(4, 1, 0), /lantern/);
   assert.match(be.at(6, 1, 0), /torch/);
   assert.equal(be.at(8, 1, 0), AIR);
-  assert.equal(be.at(4, 2, 0), AIR);
+  assert.match(be.at(4, 2, 0), /candle/);
   assert.equal(be.at(8, 5, 0), 'minecraft:sea_lantern');
 });
 

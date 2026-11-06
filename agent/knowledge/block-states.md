@@ -12,17 +12,27 @@ Directions in local space: `north` = −z (away from player), `south` = +z (towa
   computed on flush. Never hardcode `north=true`/`shape=outer_left`; just place the base id.
 - **Multiblocks**: place doors (lower half), beds (foot), tall plants (lower half), tall seagrass, pitcher plants,
   small dripleaf — the engine adds the other half. Keep the second cell free.
-- **Support (vanilla canSurvive)** is checked on flush; unsupported blocks are dropped and listed in the
-  `physics:` line (`support:'warn'` keeps them). Needs: `vine` a full face on each true side or the same face on
-  a vine above; `glow_lichen`/`sculk_vein` faces are trimmed to supported sides; wall torches, ladders,
-  `tripwire_hook`, buttons/levers (`face=wall`), amethyst buds and wall corals a full face behind; wall signs/
-  banners any solid block behind; `torch`, `lantern`, candles a full block or a post (fence, wall, chain, rod,
-  top slab — not a bottom slab, chest, hopper or lantern) below; `lantern[hanging=true]`, hanging signs a
-  bottom face above (full block, bottom slab, bottom-half stairs, chain, fence — NOT a top slab, upside-down
-  stairs, top trapdoor or fence gate; verified against the 26.3 game code); flowers, grass, saplings, bushes dirt-like ground (`grass_block`, `dirt`, `moss_block`, `mud`,
-  `farmland`; dead bush/dry grass also sand/terracotta; crops `farmland`; `cactus` sand and no solid side
-  neighbours; `sugar_cane` water next to its base); carpets anything below; rails, pressure plates, redstone,
-  doors a solid floor; `lily_pad` water; `cocoa` a jungle log. Removing a support also drops what hung on it.
+- **Support (vanilla canSurvive)** is checked on flush with the real game's face data; unsupported blocks are
+  dropped and listed in the `physics:` line (`support:'warn'` keeps them). Needs: `vine` a full face on each
+  true side (leaves count) or the same face on a vine above — `up=true` needs a block above with a full TOP face
+  (top slab ok, bottom slab not); `glow_lichen`/`sculk_vein` faces are trimmed to supported sides; wall torches,
+  ladders, `tripwire_hook`, buttons/levers, amethyst buds, wall corals and wall bells a sturdy face behind; wall
+  signs/banners any solid block behind; `torch`, `lantern` a sturdy centre below (full block, fence, wall,
+  chain, rod, top slab — not a bottom slab, chest, hopper, lantern); `lantern[hanging=true]`, hanging signs,
+  spore blossoms a bottom face above (full block, bottom slab, bottom-half stairs, chain, fence — NOT a top
+  slab, upside-down stairs, top trapdoor or fence gate). **Leaves, `dirt_path`, `farmland` and `honey_block`
+  have no sturdy top**: no torches, lanterns, doors, rails, plates or redstone on them (snow layers, carpets and
+  vines are fine on leaves); flowers, grass, saplings, bushes dirt-like ground (`grass_block`, `dirt`,
+  `moss_block`, `mud`, `farmland`; dead bush/dry grass also sand/terracotta; crops `farmland`; `cactus` sand
+  and no solid side neighbours; `sugar_cane` water next to its base; chorus `end_stone`; mushrooms only on
+  `mycelium`/`podzol`/nylium in daylight, otherwise in dark spots on opaque blocks); carpets anything below;
+  rails, pressure plates, redstone, doors a solid floor (ascending rails also a block on the high side);
+  `lily_pad` water; `cocoa` a jungle log. Candles never pop. Removing a support also drops what hung on it.
+- **Soil**: `farmland`/`dirt_path` with a solid block on top (door, plate, lantern, full block) become `dirt`
+  (vanilla) — the engine converts them and says so. Crops and fence gates keep them.
+  `grass_block`/`podzol`/`mycelium` get `snowy=true` automatically under snow.
+- **Walls**: `tall` sides and the post come from what sits on top (carpets, slabs, panes make the sides
+  tall; flower pots, heads, lanterns raise the post) — computed on flush.
 
 ## Stairs  `*_stairs[facing, half, shape, waterlogged]`
 - `facing` = the side of the **tall back** of the step = the direction you walk *up*. Roof slope on the front (+z)
@@ -139,7 +149,7 @@ stalactite tip meets a stalagmite tip: both `tip_merge`.
 - Lava only inside stone/obsidian/glass basins; never next to wood or wool (fire spread in the real game).
 
 ## Snow & ice
-`snow[layers=1..8]` (8 ≈ full block). `grass_block[snowy=true]` under snow. `powder_snow` traps players — avoid on
+`snow[layers=1..8]` (8 ≈ full block). Grass under snow becomes `snowy=true` by itself. `powder_snow` traps players — avoid on
 paths. `ice` melts near light in the real world; use `packed_ice`/`blue_ice` for permanent ice.
 
 ## Copper (oxidation)

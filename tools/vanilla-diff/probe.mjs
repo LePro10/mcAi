@@ -22,7 +22,9 @@ function jars(dir, out = []) {
   return out;
 }
 
-export function probeFile() { return join(TOOLS_HOME, `probe-26.3-${SERVER_SHA1.slice(0, 8)}.jsonl`); }
+// bump PROBE_FORMAT whenever Probe.java gains fields (old caches are then regenerated)
+export const PROBE_FORMAT = 2;
+export function probeFile() { return join(TOOLS_HOME, `probe-26.3-${SERVER_SHA1.slice(0, 8)}-v${PROBE_FORMAT}.jsonl`); }
 
 /** Load (and if needed generate, ~3 min) the probe dump. Returns Map<state, facts>. */
 export function loadProbe({ log = console.log, regenerate = false } = {}) {

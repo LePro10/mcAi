@@ -22,6 +22,11 @@
 // left/right when the stair faces along the mirror axis; stairs facing across it keep their
 // shape, which is geometrically wrong (a mirror always swaps handedness). We always swap,
 // so that mirror∘rotate identities hold and mirrored corners look right.
+// The same holds for every other family where `tools/vanilla-diff.mjs --suite transform` differs
+// (all geometrically right here; vanilla relies on a later updateShape to repair them): chests /
+// copper chests `type` (vanilla keeps left/right on mirror → mirrored double chests split), shelves
+// `side_chain` (kept), fire and chorus plant sides (vanilla does not rotate/mirror them at all) and
+// anvil `facing` on mirror (kept; the model is 180°-symmetric). See docs/VANILLA-DIFF.md.
 import type { Vec3 } from './types.ts';
 import type { Registry } from './registry.ts';
 import { formatBlockState, parseBlockState } from './blockstate.ts';

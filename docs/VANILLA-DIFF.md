@@ -5,9 +5,12 @@
 isTransparent`) against the **real 26.3 game**: a dedicated test server driven through the mod, plus
 the unobfuscated 26.3 server classes executed directly. This file lists every mismatch found, ordered
 by how often the AI builder would hit it, with the vanilla code that decides it and a suggested fix.
-Nothing in `engine/`, `mod/` or `agent/` was changed — fixes are for the owners to route.
 
-Run of 2026-11-06 (seed 1; connect also seeds 2 + 3), mod 2.0.0 on 26.3, Fabric test server:
+**The findings below have been fixed** — see [Status after fixes](#status-after-fixes) at the end for
+the structural change (registry physics), the before/after numbers and the remaining, documented
+differences. The findings are kept as the record of what was wrong and why.
+
+Run of 2026-11-06 **before the fixes** (seed 1; connect also seeds 2 + 3), mod 2.0.0 on 26.3, Fabric test server:
 
 | suite | what is compared | tested | mismatches |
 |---|---|---|---|
@@ -29,7 +32,8 @@ node tools/vanilla-diff.mjs --suite connect --seed 7 --scenes 256
 node tools/vanilla-diff.mjs --suite support [--scenes N]   # N = sample size of the 17 440 cases
 node tools/vanilla-diff.mjs --keep-server ...       # leave the test server up; next run re-attaches
 node tools/vanilla-diff.mjs --stop-server
-node tools/vanilla-diff.mjs --regenerate-probe      # re-run Probe.java (≈ 3 min)
+node tools/vanilla-diff.mjs --regenerate-probe      # re-run Probe.java (≈ 1–3 min)
+node tools/vanilla-diff/gen-physics.mjs             # regenerate engine/data/physics-26.3.json from the probe
 ```
 
 Output: a summary on stdout and `tools/vanilla-diff/last-report.json` (`--report FILE`; ~3 MB,
@@ -41,7 +45,9 @@ positions and neighbourhood, so each finding below can be replayed.
   records `isFaceSturdy(FULL|CENTER|RIGID)` per face, `isFaceFull(collisionShape|supportShape)`,
   `isSolidRender`, `canOcclude`, `isCollisionShapeFullBlock`, legacy `isSolid()`, `isRedstoneConductor`,
   `canBeReplaced`, `Block.isExceptionForConnection` and `rotate(CW_90|180|CCW_90)` / `mirror(LEFT_RIGHT|FRONT_BACK)`.
-  Cached as `~/.mcai-tools/vanilla-diff/probe-26.3-33680f5f.jsonl`. Static runs on both registries the
+  Since the fixes it also records `isSignalSource`, a non-empty collision top face and the wall coverage
+  of the bottom collision face (`WallBlock.TEST_SHAPE_POST` / `TEST_SHAPES_WALL`).
+  Cached as `~/.mcai-tools/vanilla-diff/probe-26.3-33680f5f-v2.jsonl` (`PROBE_FORMAT` in `probe.mjs`). Static runs on both registries the
   engine uses: `offline` (`engine/data/registry-26.3.json`, sim/CLI) and `live` (the mod's hello
   registry, which adds `solid = isCollisionShapeFullBlock` hints; cached from the last server run).
   Executing the vanilla methods is more faithful than reading them; for `rotate/mirror` it is exactly
@@ -319,3 +325,83 @@ Keep `vanilla-diff --suite static` as the regression test for the table.
   is shown statically + by the distance update after placement.
 * Survival of blocks whose check depends on more than one neighbour is sampled with one candidate support
   at a time (other neighbours air), e.g. vines with several faces.
+
+---
+
+## Status after fixes
+
+Run of 2026-11-06 after the fixes (same harness, same test server; connect seeds 1–6, support all
+17 440 cases with seeds 1 and 2):
+
+| suite | before | after |
+|---|---|---|
+| static (offline + live registry) | 16–224 differing blocks per check (isFullSolid 16, isTransparent 19, conductor 23, sturdy sides 78, support FULL/CENTER faces 25–224 …) | **0** in every check, both registries — plus new checks: `physics` (the table itself, 35 723 states), `support.faceRIGID`, `wall.cover` |
+| connect | seed 1: 146 + 68 unmodelled; seeds 1–3: 445 + 218 unmodelled | seed 1: **2** + 2 unmodelled; seeds 2–6: **0** + 0–3 unmodelled each (seeds 1–3: 2 + 7) |
+| support | 1 622 / 17 440 | **0** / 17 440 (both seeds) |
+| transform | 10 940 in 54 families | unchanged — all deliberate (see "Transform" above, now listed in the `transform.ts` header) |
+| multiblock | 0 | 0 |
+
+### Structural change: registry physics
+The engine no longer guesses shapes. Per-state facts of the real classes travel with the registry
+(`registry.physics`, format 1 — ARCHITECTURE §5): sturdy faces `FULL/CENTER/RIGID`, collision and
+support face fullness, `isSolidRender`, legacy `isSolid`, `isRedstoneConductor`, `isSignalSource`,
+`canBeReplaced`, `isCollisionShapeFullBlock`, `propagatesSkylightDown`, a non-empty collision top face
+and the wall coverage of the bottom collision face. Deduplicated into 168 classes; a block is one
+class id or a table over only the properties that matter → **≈ 165 kB JSON (≈ 10 kB gzip)** for
+1 286 blocks (hello registry 775 → 920 kB; computed once per server start, ≈ 0.3–0.9 s; the protocol
+test's handshake still completes in < 1 s after the mod connects).
+* mod: `RegistryDump.physics` computes it from the running game (modded blocks included; states that
+  need a real world get −1 → heuristics). `static/live` = 0 differences proves the hello table equals
+  the real classes; `tools/mod-protocol-test.mjs` checks that it equals the bundled table.
+* simulation/CLI: `engine/data/physics-26.3.json`, generated by `tools/vanilla-diff/gen-physics.mjs` from
+  Probe.java (same algorithm as the mod: `engine/src/core/physics.ts buildPhysicsTable`).
+* engine: `Registry.physics(state)`; `connect.ts` (sturdy faces, wall tall/post, conductors, signal
+  sources) and `support.ts` (FULL/CENTER/RIGID faces, multiface attach = support|collision face, snow =
+  collision top, sea pickle, legacy solid for signs/banners/cakes/cactus/soil, solid render for
+  mushrooms, replaceable for gravity) read it. `isFullSolid` = all faces sturdy or a full-cube collision
+  (leaves stay "full" for masks/terrain, but have no sturdy faces); `isTransparent` = `!isSolidRender`.
+* backward compatible: an older mod without `physics` → the bundled table for the blocks it knows, id
+  heuristics for the rest (`--heuristics` prints how far the heuristics alone are off: they were also
+  fixed for leaves, dirt path, farmland, honey, composter, but remain a fallback only).
+
+### Rule fixes (findings → code)
+1 leaves not sturdy · 3 walls from the collision face above · 4 fences/panes/walls to every sturdy face
+· 5 mud/soul sand (physics beats the `solid` hint) · 6 dirt path/farmland/honey tops · 10 CENTER table ·
+15 RIGID for rails/diodes · 13 legacy `isSolid` · 27 conductors (+ signal sources from `isSignalSource`,
+e.g. jukebox) — all through the physics table. Rules: 7 `snowy` (connect.ts, `#snow` above) · 8 bells
+(floor FULL, ceiling `canSupportCenter`, single wall FULL on the facing side, double wall never) ·
+9 mushrooms (see below) · 11 vine `up` tests the TOP face above · 12 candles and wall hanging signs have
+no rule · 14 ascending rails need RIGID on the high side · 16 wire on hoppers · 17 chorus plant/flower ·
+18 big dripleaf (+ stem) · 19 small dripleaf (`#supports_small_dripleaf`, or vegetation ground when
+waterlogged) · 20 hanging propagule only under `#supports_hanging_mangrove_propagule` · 21 spore
+blossom `canSupportCenter` · 22 sea pickle · 23 cactus flower · 24 dead corals (`*_coral` had no rule) ·
+25 gravity `isFree` incl. replaceable · 26 a dot without connections stays a dot · 28 farmland/dirt
+path → dirt (kind `soil`, below) · 29 tripwire and pale moss carpet sides (connect.ts). Leaf decay (#2)
+was already handled by `EditSession` (`withPersistentLeaves`).
+Spawned by the fixes: `EditSession` re-solves connections around blocks that support dropped/converted
+(a fence next to a dropped door, a wall next to new dirt), and seeds the block below a full block so
+farmland/paths under it are checked. The connect suite places stairs first within a layer (removes the
+mod's single-pass ordering artefact described above).
+
+### Remaining differences (intentional / out of scope)
+* **Redstone power** (connect, seed 1: 2 wires; "unmodelled" trapdoor `open`, hopper `enabled`, lamp
+  `lit`, a comparator popping): a `redstone_block` in the scene powers wires, a powered trapdoor opens and
+  the wire on it pops, which re-shapes the next wire. The engine models shapes, not power.
+* **Leaf `distance`** (1 per seed at most): vanilla converges it through scheduled ticks; the engine keeps
+  the placed value. Harmless — placed leaves are persistent.
+* **Mushroom light** is approximated: kept on `#overrides_mushroom_light_requirement`; otherwise kept only
+  on a solid-render block when no see-through cell within 2 steps (incl. its own) has open sky above
+  (sky light ≥ 13). Block light (torches ≥ 13 next to it) is ignored; columns that leave the known area
+  before 8 cells count as covered (assume indoors).
+* **Dirt paths in the mod's shape pass**: dirt_path has no properties, so the mod's set_blocks never
+  shape-updates it and a path under a solid block stays a path until a vanilla update reaches it
+  (farmland, which has `moisture`, converts at once). `EditSession` converts both proactively (and warns
+  the agent: "turned N farmland/dirt path under solid blocks into dirt"), so engine builds and the world
+  agree; the simulation backend mirrors the mod (farmland only) for raw `setBlocks`.
+* **Candles / wall hanging signs** are never dropped (vanilla keeps them); a floating candle is only a
+  looks problem.
+* **Ticks after mcAI placement** (support phase 2): cactus, sugar cane, bamboo, scaffolding, dripstone,
+  cave/weeping/twisting vines, pale hanging moss, chorus and anvils still break by themselves when
+  unsupported — the engine now drops all of them (chorus included); gravity stays warn-only.
+* **Transform**: unchanged by design (engine geometrically right; vanilla repairs with `updateShape`).
+* Not covered dynamically (unchanged): water-dependent plants, random ticks.

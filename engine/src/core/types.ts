@@ -26,6 +26,8 @@ export interface BlockInfo {
 export interface BlockRegistry {
   version: string;
   blocks: Record<string, BlockInfo>;
+  /** per-state physical facts (sturdy faces, collision faces, …) — see core/physics.ts; optional (newer mods) */
+  physics?: import('./physics.ts').PhysicsTable;
 }
 
 /**
