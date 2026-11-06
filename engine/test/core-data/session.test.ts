@@ -230,3 +230,22 @@ test('prefetch splits big boxes into ≤ 1M-block calls', async () => {
   assert.equal(s.get(100, 300, 100), STONE);
   assert.equal(s.misses, 0);
 });
+
+test('placed leaves are persistent unless persistent=false is written explicitly', async () => {
+  const { withPersistentLeaves } = await import('../../src/core/session.ts');
+  const R = reg();
+  assert.equal(withPersistentLeaves('oak_leaves', R), 'oak_leaves[persistent=true]');
+  assert.equal(withPersistentLeaves('minecraft:cherry_leaves[distance=1]', R), 'minecraft:cherry_leaves[persistent=true,distance=1]');
+  assert.equal(withPersistentLeaves('oak_leaves[]', R), 'oak_leaves[persistent=true]');
+  assert.equal(withPersistentLeaves('spruce_leaves[persistent=false]', R), 'spruce_leaves[persistent=false]');
+  assert.equal(withPersistentLeaves('oak_log', R), 'oak_log');
+  const be = new MemBackend();
+  const s = new EditSession(be, R, { support: 'off' });
+  s.set(0, 0, 0, 'oak_leaves');
+  s.set(1, 0, 0, 'azalea_leaves[waterlogged=false]');
+  s.set(2, 0, 0, 'birch_leaves[persistent=false]');
+  await s.flush();
+  assert.match(be.at(0, 0, 0), /persistent=true/);
+  assert.match(be.at(1, 0, 0), /persistent=true/);
+  assert.match(be.at(2, 0, 0), /persistent=false/);
+});

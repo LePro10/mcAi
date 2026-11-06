@@ -4,6 +4,7 @@ import { z } from 'zod';
 import type { BlockVolume, Box, Vec3 } from '../../core/types.ts';
 import { BuildOpSchema, DSL_HELP, executeOps, OpError, type BuildOp } from '../../core/dsl.ts';
 import { runScript } from '../../core/script.ts';
+import { checkRoofFits } from '../../core/shapes.ts';
 import type { EditSession } from '../../core/session.ts';
 import { listPrefabs, placePrefab } from '../../core/prefabs.ts';
 import { compileMask, type MaskSpec } from '../../core/mask.ts';
@@ -30,13 +31,16 @@ import {
   fmtBox,
   frameOf,
   jobOriginals,
+  worldOf,
   newSession,
   normBoxIn,
   perCallLimit,
   prefetch,
   spaceFrame,
   statsText,
+  toLocalBox,
   toWorldBox,
+  type BoxInput,
   type ToolDef,
 } from './common.ts';
 
@@ -110,7 +114,7 @@ export const buildTool = defineTool({
     // pass 1: dry run of every schema-valid op → extent, bounds, size, per-op errors.
     // Ops that read the terrain (bridge piers) need the real world during the dry run.
     let early: EditSession | null = null;
-    if (parsed.some((p) => p.op.op === 'bridge')) {
+    if (parsed.some((p) => p.op.op === 'bridge' || p.op.op === 'vines')) {
       early = newSession(ctx, a.label ?? 'build', limit);
       await prefetch(ctx, early, job.allowedBox, 1);
     }
@@ -131,7 +135,18 @@ export const buildTool = defineTool({
           throw e;
         }
         if (dry.outside > before && !a.clip) {
-          invalid.push({ index, text: `op #${index} (${op.op}) writes ${dry.outside - before} blocks outside the allowed box` });
+          let why = '';
+          if (op.op === 'roof') {
+            try {
+              const o = op as Record<string, unknown>;
+              const rp = { ...o, box: normBoxIn(o.box as BoxInput), skipBox: o.skipBox ? normBoxIn(o.skipBox as BoxInput) : undefined } as never;
+              const allowedHere = a.space === 'local' ? toLocalBox(ctx, job.allowedBox) : job.allowedBox;
+              why = checkRoofFits(rp, reg, allowedHere) ?? '';
+            } catch {
+              why = '';
+            }
+          }
+          invalid.push({ index, text: `op #${index} (${op.op}) writes ${dry.outside - before} blocks outside the allowed box${why ? ` — ${why}` : ''}` });
           outsideMin = outsideMin ? (outsideMin.map((v, i) => Math.min(v, dry.outsideMin[i]!)) as Vec3) : ([...dry.outsideMin] as Vec3);
           outsideMax = outsideMax ? (outsideMax.map((v, i) => Math.max(v, dry.outsideMax[i]!)) as Vec3) : ([...dry.outsideMax] as Vec3);
           dry.outsideMin = oMin;
@@ -175,9 +190,12 @@ export const buildTool = defineTool({
 });
 
 /** Natural ground per column (world) for groundY(): skips plants, leaves, tree logs and this job's builds. */
-async function groundMap(ctx: Parameters<typeof commit>[0], foot: Box): Promise<{ x0: number; z0: number; w: number; d: number; data: Float64Array } | null> {
+async function groundMap(ctx: Parameters<typeof commit>[0], foot0: Box): Promise<{ x0: number; z0: number; w: number; d: number; data: Float64Array } | null> {
   const { job, env } = ctx;
-  const be = env.backend();
+  const be = worldOf(ctx);
+  // cover the whole allowed box (+8) so groundY works anywhere the script may build
+  const ab = job.allowedBox;
+  const foot: Box = { min: [Math.min(foot0.min[0], ab.min[0] - 8), foot0.min[1], Math.min(foot0.min[2], ab.min[2] - 8)], max: [Math.max(foot0.max[0], ab.max[0] + 8), foot0.max[1], Math.max(foot0.max[2], ab.max[2] + 8)] };
   const reg = env.registry();
   const info = await be.info();
   const hm = await be.heightmap(foot.min[0], foot.min[2], foot.max[0], foot.max[2], 'surface', job.dimension);
@@ -189,7 +207,11 @@ async function groundMap(ctx: Parameters<typeof commit>[0], foot: Box): Promise<
   if (!Number.isFinite(lo)) return null;
   const ylo = Math.max(info.minY, lo - 40);
   const fb: Box = { min: [foot.min[0], ylo, foot.min[2]], max: [foot.max[0], hi, foot.max[2]] };
-  if (boxVolume(fb) > 12_000_000) return null;
+  if (boxVolume(fb) > 12_000_000) {
+    // too big for a full scan: natural-ish ground from the ocean-floor heightmap
+    const of = await be.heightmap(foot.min[0], foot.min[2], foot.max[0], foot.max[2], 'ocean_floor', job.dimension);
+    return { x0: of.x0, z0: of.z0, w: of.x1 - of.x0 + 1, d: of.z1 - of.z0 + 1, data: Float64Array.from(of.data) };
+  }
   const vol = await be.getBlocks(fb, job.dimension);
   const orig = jobOriginals(ctx);
   const get = (x: number, y: number, z: number) => {
@@ -237,10 +259,10 @@ export const runScriptTool = defineTool({
   description:
     'Run sandboxed JavaScript that generates blocks (for organic/procedural/repetitive work: trees, terrain details, windows in loops, statues, pixel art). One undo step. ' +
     "Coordinates are local (default) or world. API: set(x,y,z,block|fn), setSoft(x,y,z,block) (only into air/grass/flowers; returns placed?), get(x,y,z) (existing blocks inside readBox + your own writes), " +
-    'groundY(x,z) (natural ground y: ignores plants, leaves, tree logs and your own builds), protect(box)/unprotect() (later sets inside are ignored), fill(x1,y1,z1,x2,y2,z2,block), ' +
+    'groundY(x,z) (natural ground y: ignores plants, leaves, tree logs and your own builds), isWater(x,y,z), topY(x,z,{includeOwn,solid}) (actual top block incl. builds), protect(box)/unprotect() (later sets inside are ignored), fill(x1,y1,z1,x2,y2,z2,block), ' +
     'shapes box/cuboid/ellipsoid/sphere/cylinder/cone/pyramid/torus/line/curve/polygon/arch/spiral(params, block|fn(x,y,z)) (params like build ops), positions(shape, params), ' +
     'roof({box,style,stairs,...}), pattern(spec)→fn, block(id,{props}), isAir(s), noise2/noise3/fbm2/fbm3, rand/randInt/chance/choice/shuffle (seeded), vec.*, log(...), info. ' +
-    'Reusable modules: define(name, function(params){…}) keeps a generator for the rest of the job; call(name, params) runs it (also generators saved with save_generator; list_generators). ' +
+    'Reusable modules: define(name, function(params){…}) keeps a generator (with this script\'s top-level helper functions/consts) for the rest of the job; call(name, params) runs it (also generators saved with save_generator; list_generators). ' +
     'Gradient patterns span the readBox by default; give from/to along the axis to control the range, e.g. pattern({type:"gradient",axis:"y",stops:[...],from:0,to:20}). No I/O, no require. Time limit default 15 s (max 120). Logs and errors (with line numbers) are returned verbatim — fix and rerun.',
   input: z.object({
     code: z.string().min(1).max(256 * 1024),
@@ -256,9 +278,16 @@ export const runScriptTool = defineTool({
     const { job, env } = ctx;
     const reg = env.registry();
     const limit = perCallLimit(ctx);
-    const rb = a.readBox ? toWorldBox(ctx, normBoxIn(a.readBox), a.space) : job.allowedBox;
+    // never read far outside the job area (huge reads stall the real game): clamp to allowed box ± 4
+    const ab = job.allowedBox;
+    const lim: Box = { min: [ab.min[0] - 4, ab.min[1] - 4, ab.min[2] - 4], max: [ab.max[0] + 4, ab.max[1] + 4, ab.max[2] + 4] };
+    let rb = a.readBox ? toWorldBox(ctx, normBoxIn(a.readBox), a.space) : ab;
+    const rbc = boxIntersect(rb, lim);
+    if (!rbc) throw new ToolError(`readBox does not overlap the allowed box (± 4) — ${allowedText(ctx)}`);
+    const clampedNote = rbc.min.some((v, i) => v !== rb.min[i]) || rbc.max.some((v, i) => v !== rb.max[i]) ? `readBox clamped to the allowed box ± 4 (world ${fmtBox(rbc)})` : '';
+    rb = rbc;
     let volume;
-    if (boxVolume(rb) <= 4_000_000) volume = await env.backend().getBlocks(rb, job.dimension);
+    if (boxVolume(rb) <= 4_000_000) volume = await worldOf(ctx).getBlocks(rb, job.dimension);
     const generators = generatorsFor(ctx, a.code);
     const allCode = a.code + '\n' + Object.values(generators).join('\n');
     const ground = /\bgroundY\s*\(/.test(allCode) ? await groundMap(ctx, rb) : null;
@@ -298,6 +327,7 @@ export const runScriptTool = defineTool({
     const extra = [
       skipped ? `${skipped} outside blocks clipped` : '',
       res.protectedSkips ? `${res.protectedSkips} sets inside protect()ed boxes ignored` : '',
+      clampedNote,
       defined.length ? `defined generator(s) ${defined.join(', ')} — call(name, params) in later scripts; save_generator to keep them for future jobs` : '',
     ].filter(Boolean);
     return { text: `${label}: ${res.entries.length} blocks generated in ${Math.round(res.ms)} ms; ${statsText(st)}${extra.length ? `; ${extra.join('; ')}` : ''}${logs}`, blocks: st.changed };
@@ -375,7 +405,7 @@ export const terraformTool = defineTool({
   async run(a, ctx) {
     const { job, env } = ctx;
     const reg = env.registry();
-    const be = env.backend();
+    const be = worldOf(ctx);
     const lbox = normBoxIn(a.box);
     const wfoot = toWorldBox(ctx, { min: [lbox.min[0], 0, lbox.min[2]], max: [lbox.max[0], 0, lbox.max[2]] }, a.space);
     const ab = job.allowedBox;
@@ -514,7 +544,7 @@ export const clearTool = defineTool({
   async run(a, ctx) {
     const { job, env } = ctx;
     const reg = env.registry();
-    const be = env.backend();
+    const be = worldOf(ctx);
     const box = normBoxIn(a.box);
     let wbox = toWorldBox(ctx, box, a.space);
     if (!a.clip && !boxIntersect(wbox, job.allowedBox)) throw new ToolError(`box is outside the ${allowedText(ctx)}`);

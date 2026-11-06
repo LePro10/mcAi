@@ -6,6 +6,7 @@ import { compileScene, sceneBoundsBox, type SceneData } from './scene.ts';
 import { createTracer, type RenderParams } from './trace.ts';
 import { makeCamera, makeLighting, project, VIEW_DIR, type Camera, type ViewName } from './camera.ts';
 import { renderParallel } from './pool.ts';
+import { cutMask } from './cutmask.ts';
 import { Img, type RGBA } from './image.ts';
 
 export { renderLayers } from './layers.ts';
@@ -47,6 +48,10 @@ export interface RenderOptions {
   /** elevation views (front/back/left/right) with a focus box: natural terrain/plants/water in front of the
    *  focus box's near face are cut away so the facade is seen unobstructed (default true) */
   cutaway?: boolean;
+  /** hide natural terrain, plants, water and natural trees outside this (allowed) box on the camera side */
+  cutOutside?: Box;
+  /** world positions that must never be cut away (the job's own blocks), e.g. a PosMap */
+  keep?: { forEach(cb: (v: unknown, x: number, y: number, z: number) => void): void };
 }
 
 export const VIEW_LABEL: Record<string, string> = {
@@ -57,17 +62,29 @@ export const VIEW_LABEL: Record<string, string> = {
 interface Prepared {
   scene: SceneData;
   frame: Box;
+  vol: BlockVolume;
 }
 
 function prepare(v: BlockVolume, assets: AssetStore | null, opts: RenderOptions): Prepared {
   const scene = compileScene(v, assets, opts.biome);
   const frame = opts.focus ?? sceneBoundsBox(scene) ?? v.box;
-  return { scene, frame };
+  return { scene, frame, vol: v };
+}
+
+/** outside-cut params: allowed box in grid coords + camera direction (iso/elevation views only) */
+function cutOutParams(opts: RenderOptions, s: { ox: number; oz: number }): number[] | undefined {
+  const b = opts.cutOutside;
+  const d = VIEW_DIR[opts.view ?? 'iso_se'];
+  if (!b || !d) return undefined;
+  return [b.min[0] - s.ox, b.min[2] - s.oz, b.max[0] - s.ox, b.max[2] - s.oz, d[0], d[1]];
 }
 
 async function trace(prep: Prepared, cam: Camera, opts: RenderOptions): Promise<Float32Array> {
   const L = makeLighting(opts.time ?? 'day', cam, opts.sun ?? 'camera');
   const s = prep.scene;
+  const cutaway = cutawayParams(opts, s);
+  const cutOut = cutOutParams(opts, s);
+  if (!s.cut && (cutOut || 'clipAxis' in cutaway)) s.cut = cutMask(prep.vol, s, opts.keep);
   const fx0 = prep.frame.min[0], fz0 = prep.frame.min[2], fx1 = prep.frame.max[0] + 1, fz1 = prep.frame.max[2] + 1;
   const diag = Math.hypot(fx1 - fx0, prep.frame.max[1] - prep.frame.min[1] + 1, fz1 - fz0);
   const params: RenderParams = {
@@ -78,7 +95,8 @@ async function trace(prep: Prepared, cam: Camera, opts: RenderOptions): Promise<
     groundBox: [Math.min(fx0, s.ox), Math.min(fz0, s.oz), Math.max(fx1, s.ox + s.sx), Math.max(fz1, s.oz + s.sz)],
     fogDepth: opts.fog === false ? 0 : Math.max(12, diag * 2.5), fogStart: fogStart(cam, prep.frame), fogCol: L.fogCol, night: L.night,
     section: opts.section ?? true,
-    ...cutawayParams(opts, s),
+    ...cutaway,
+    ...(cutOut ? { cutOut } : {}),
   };
   const fb = new Float32Array(new SharedArrayBuffer(cam.W * cam.H * 3 * 4));
   let done = false;

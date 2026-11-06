@@ -35,6 +35,8 @@ export interface SceneData {
   pGlass: Uint8Array;
   /** natural terrain class: 0 none, 1 solid ground, 2 loose plants/snow, 3 fluid */
   pTerrain: Uint8Array;
+  /** optional per-cell mask (same layout as grid): 1 = natural cell the cutaway may remove (set by render.ts) */
+  cut?: Uint8Array;
   elems: Float32Array;
   atlas: Uint8Array;
   atlasW: number;

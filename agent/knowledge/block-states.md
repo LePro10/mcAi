@@ -17,8 +17,9 @@ Directions in local space: `north` = −z (away from player), `south` = +z (towa
   a vine above; `glow_lichen`/`sculk_vein` faces are trimmed to supported sides; wall torches, ladders,
   `tripwire_hook`, buttons/levers (`face=wall`), amethyst buds and wall corals a full face behind; wall signs/
   banners any solid block behind; `torch`, `lantern`, candles a full block or a post (fence, wall, chain, rod,
-  top slab — not a bottom slab, chest or lantern) below; `lantern[hanging=true]`, hanging signs a block/chain
-  above; flowers, grass, saplings, bushes dirt-like ground (`grass_block`, `dirt`, `moss_block`, `mud`,
+  top slab — not a bottom slab, chest, hopper or lantern) below; `lantern[hanging=true]`, hanging signs a
+  bottom face above (full block, bottom slab, bottom-half stairs, chain, fence — NOT a top slab, upside-down
+  stairs, top trapdoor or fence gate; verified against the 26.3 game code); flowers, grass, saplings, bushes dirt-like ground (`grass_block`, `dirt`, `moss_block`, `mud`,
   `farmland`; dead bush/dry grass also sand/terracotta; crops `farmland`; `cactus` sand and no solid side
   neighbours; `sugar_cane` water next to its base); carpets anything below; rails, pressure plates, redstone,
   doors a solid floor; `lily_pad` water; `cocoa` a jungle log. Removing a support also drops what hung on it.

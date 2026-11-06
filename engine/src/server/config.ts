@@ -69,6 +69,11 @@ export const ConfigSchema = z.object({
   defaultSize: SizeSchema.default({ x: 48, y: 40, z: 48 }),
   /** blocks below the anchor that the agent may still edit (foundations, terraforming) */
   depthBelow: z.number().int().min(0).max(64).default(12),
+  /** the player's selection is the primary build area; the agent may extend this many blocks around it
+   *  (supports, terrain blending, paths, trees) — horizontally and vertically */
+  selectionMargin: z.number().int().min(0).max(32).default(8),
+  /** minimum height of the allowed box above the selection floor / anchor (low selections grow upward) */
+  minBuildHeight: z.number().int().min(4).max(256).default(32),
   /** path to the claude executable (env MCAI_CLAUDE overrides) */
   claudePath: z.string().default('claude'),
   /** extra CLI args appended to every claude invocation */

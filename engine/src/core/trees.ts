@@ -272,6 +272,8 @@ export function findFloating(v: BlockVolume, reg: Registry, opts: { maxClusters?
     }
     return near[i] === 1;
   };
+  const roofPiece = new Uint8Array(v.palette.length);
+  v.palette.forEach((st, i) => (roofPiece[i] = /_(stairs|slab)(\[|$)/.test(st) ? 1 : 0));
   const seen = new Uint8Array(g.n);
   const n6 = new Int32Array(6);
   const out: FloatingCluster[] = [];
@@ -289,12 +291,24 @@ export function findFloating(v: BlockVolume, reg: Registry, opts: { maxClusters?
       const y = (i / g.layer) | 0;
       const x = i % g.sx, z = ((i / g.sx) | 0) % g.sz;
       if (y === 0 || x === 0 || z === 0 || x === g.sx - 1 || z === g.sz - 1) grounded = true;
+      // floating plants (lily pads, sea pickles on water…) are held by the water below
+      if (kind[p] === K_SOFT && y > 0 && K(i - g.layer) === K_FLUID) grounded = true;
       nb6(g, i, n6);
       for (let d = 0; d < 6; d++) {
         const j = n6[d]!;
         if (j < 0 || seen[j] || !occupied(K(j))) continue;
         seen[j] = 1;
         comp.push(j);
+      }
+      // roof pieces (stairs/slabs) stepping diagonally are one surface: join them along edges too
+      if (roofPiece[p]) {
+        for (const j of nb26(g, i)) {
+          if (seen[j] || !roofPiece[v.data[j]!]) continue;
+          const dx = Math.abs((j % g.sx) - x), dy = Math.abs(((j / g.layer) | 0) - y), dz = Math.abs((((j / g.sx) | 0) % g.sz) - z);
+          if (dx + dy + dz !== 2) continue; // edge neighbours only
+          seen[j] = 1;
+          comp.push(j);
+        }
       }
       if (comp.length > 200_000) grounded = true; // huge mass: not "small junk"
     }

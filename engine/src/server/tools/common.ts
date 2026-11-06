@@ -7,12 +7,14 @@ import type { Registry } from '../../core/registry.ts';
 import { Frame } from '../../core/frame.ts';
 import { EditSession, BoundsError, LimitError, type FlushResult, type History } from '../../core/session.ts';
 import { summarizeSupport, type SupportMode } from '../../core/support.ts';
+import { assertSafeState, SafetyError } from '../../core/safety.ts';
 import type { BlockSink } from '../../core/dsl.ts';
 import type { StructureLibrary } from '../../core/schematic.ts';
 import type { AssetStore } from '../../assets/assets.ts';
 import { batchBounds, boxContains, boxIntersect, boxUnion, boxVolume, createVolume, volSet, volGet } from '../../core/volume.ts';
 import { PosMap } from '../../core/posmap.ts';
 import type { Config } from '../config.ts';
+import { JobWorldCache } from './world-cache.ts';
 import type { Job, JobManager } from '../../agent/jobs.ts';
 
 export interface ToolEnv {
@@ -92,6 +94,26 @@ export function normBoxIn(bi: BoxInput): Box {
   return { min, max };
 }
 
+/**
+ * The job's view of the world: a per-job read cache over env.backend() (one big read of the job
+ * area, own edits applied in memory, heightmaps cached). Use it for every read and write in tools.
+ */
+export function worldOf(ctx: ToolCtx): JobWorldCache {
+  const be = ctx.env.backend();
+  let c = ctx.job.scratch.get('world') as JobWorldCache | undefined;
+  if (!c || c.inner !== be) {
+    const ab = ctx.job.allowedBox;
+    c = new JobWorldCache(be, {
+      region: { min: [ab.min[0] - 4, ab.min[1] - 4, ab.min[2] - 4], max: [ab.max[0] + 4, ab.max[1] + 4, ab.max[2] + 4] },
+      dimension: ctx.job.dimension,
+      log: (kind, data) => ctx.job.log(kind, data),
+      alive: () => ctx.job.active,
+    });
+    ctx.job.scratch.set('world', c);
+  }
+  return c;
+}
+
 export function frameOf(ctx: ToolCtx): Frame {
   const reg = ctx.env.registry();
   let f = ctx.job.scratch.get('frame') as Frame | undefined;
@@ -146,7 +168,7 @@ export function allowedText(ctx: ToolCtx): string {
  */
 export async function readSpaceVolume(ctx: ToolCtx, boxIn: Box, space: 'local' | 'world'): Promise<{ vol: BlockVolume; worldBox: Box }> {
   const worldBox = toWorldBox(ctx, boxIn, space);
-  const raw = await ctx.env.backend().getBlocks(worldBox, ctx.job.dimension);
+  const raw = await worldOf(ctx).getBlocks(worldBox, ctx.job.dimension);
   if (space === 'world') return { vol: raw, worldBox };
   const f = frameOf(ctx);
   const out = createVolume(boxIn);
@@ -249,6 +271,7 @@ export class DrySink implements BlockSink {
 
   set(x: number, y: number, z: number, state: string): void {
     this.touch(x, y, z);
+    assertSafeState(state);
     if (!boxContains(this.bounds, x, y, z)) {
       this.outside++;
       for (let i = 0; i < 3; i++) {
@@ -278,7 +301,7 @@ export function perCallLimit(ctx: ToolCtx): number {
 }
 
 export function newSession(ctx: ToolCtx, label: string, maxBlocks = perCallLimit(ctx)): EditSession {
-  return new EditSession(ctx.env.backend(), ctx.env.registry(), {
+  return new EditSession(worldOf(ctx), ctx.env.registry(), {
     bounds: ctx.job.allowedBox,
     maxBlocks,
     dimension: ctx.job.dimension,
@@ -361,6 +384,7 @@ export function statsText(s: FlushStats): string {
 export function explainError(e: unknown, ctx: ToolCtx): string {
   const err = e as Error;
   if (err instanceof ToolError) return err.message;
+  if (err instanceof SafetyError) return `${err.message}. Nothing was built.`;
   if (err instanceof BoundsError) return `${err.message}. ${allowedText(ctx)}. Move/shrink the edit or pass clip:true to drop outside blocks.`;
   if (err instanceof LimitError) return `${err.message}. Split the work into several smaller calls (limit ${ctx.env.config.maxBlocksPerCall.toLocaleString('en')} blocks per call).`;
   return err?.message ?? String(e);

@@ -14,6 +14,7 @@ import type { Registry } from './registry.ts';
 import { RegistryError } from './registry.ts';
 import { blockId } from './blockstate.ts';
 import { stairsShapeFor, type Dir4, type StairInfo } from './connect.ts';
+import { compilePattern, type PatternFn, type PatternSpec } from './pattern.ts';
 
 export interface PosSink {
   (x: number, y: number, z: number): void;
@@ -712,10 +713,13 @@ export interface RoofParams {
   axis?: 'x' | 'z';
   stairs: string;
   slab?: string;
-  /** solid fill under the roof surface (inside the footprint): a block id, or true = the full block matching the stairs */
-  fill?: string | boolean;
-  /** gable/gambrel/shed: block for the two end walls (gable triangles) under the roof */
-  ends?: string;
+  /** solid fill under the roof surface (inside the footprint): true = the full block matching the stairs, a block
+   * id or pattern ("75%white_terracotta,25%calcite", a PatternSpec), or a state function (null = leave empty) */
+  fill?: boolean | PatternSpec | PatternFn;
+  /** gable/gambrel/shed: end walls (gable triangles) under the roof: a block id, pattern or state function */
+  ends?: PatternSpec | PatternFn;
+  /** seed for random fill/ends patterns (default 0) */
+  seed?: number;
   /** eaves beyond the footprint on every side (default 1; dome 0; swept_hip 2). The slope continues downward. */
   overhang?: number;
   /** rise per horizontal block (default 1; shed 0.5; spire 3; cone 1.6; dome 1 = hemisphere) */
@@ -769,6 +773,18 @@ function roofError(msg: string): never {
 }
 
 /** derive the full block / slab that match a stairs block */
+/** world-space result of a roof: bounding box of everything placed, highest block (finial included) and ridge */
+export interface RoofExtent {
+  min: Vec3;
+  max: Vec3;
+  /** highest placed block (finial / ornaments included) */
+  topY: number;
+  /** highest roof-surface block (ridge or apex piece) */
+  ridgeY: number;
+  /** number of blocks placed (0 = nothing; min/max are then box.min) */
+  blocks: number;
+}
+
 export function roofMaterials(reg: Registry, stairs: string, slab?: string): { stairs: string; slab: string | null; full: string } {
   if (typeof stairs !== 'string' || !stairs.trim()) roofError(`stairs must be a stairs block id (e.g. "spruce_stairs"), got ${typeName(stairs)}`);
   if (slab !== undefined && typeof slab !== 'string') roofError(`slab must be a slab block id, got ${typeName(slab)}`);
@@ -829,6 +845,14 @@ function vBlockOrTrue(p: Record<string, unknown>, k: string): string | true | un
   if (typeof v !== 'string' || !v.trim()) roofError(`${k} must be true or a block id, got ${typeName(v)}`);
   return v;
 }
+/** shape check only; the pattern itself is compiled (and its blocks checked) inside roof() */
+function vPatternIn(p: Record<string, unknown>, k: string, allowTrue: boolean): void {
+  const v = p[k];
+  if (v === undefined || v === null || v === false || typeof v === 'function') return;
+  if (v === true && allowTrue) return;
+  if ((typeof v === 'string' && v.trim()) || (Array.isArray(v) && v.length) || (v && typeof v === 'object' && !Array.isArray(v))) return;
+  roofError(`${k} must be ${allowTrue ? 'true, ' : ''}a block id, a pattern ("75%white_terracotta,25%calcite") or a state function, got ${typeName(v)}`);
+}
 function vVec(v: unknown, what: string): Vec3 {
   if (!Array.isArray(v) || v.length !== 3 || !v.every((n) => typeof n === 'number' && Number.isFinite(n)))
     roofError(`${what} must be [x,y,z] with 3 numbers, got ${JSON.stringify(v)?.slice(0, 60) ?? typeName(v)}`);
@@ -850,7 +874,7 @@ export function validateRoofParams(p: RoofParams): void {
   if (r.box === undefined) roofError('needs "box" (the wall footprint; min.y = first roof layer)');
   vBox(r.box, 'box');
   if (r.skipBox !== undefined) vBox(r.skipBox, 'skipBox');
-  for (const k of ['stairs', 'slab', 'ends', 'axis', 'facing'] as const) {
+  for (const k of ['stairs', 'slab', 'axis', 'facing'] as const) {
     if (r[k] !== undefined && typeof r[k] !== 'string') roofError(`${k} must be a string, got ${typeName(r[k])}`);
   }
   if (r.stairs === undefined) roofError('needs "stairs" (e.g. "dark_oak_stairs")');
@@ -863,7 +887,10 @@ export function validateRoofParams(p: RoofParams): void {
   vNum(r, 'lift', 0, 6);
   vNum(r, 'bracketEvery', 1, 64);
   vBool(r, 'round');
-  for (const k of ['fill', 'soffit', 'fascia', 'brackets']) vBlockOrTrue(r, k);
+  for (const k of ['soffit', 'fascia', 'brackets']) vBlockOrTrue(r, k);
+  vPatternIn(r, 'fill', true);
+  vPatternIn(r, 'ends', false);
+  vNum(r, 'seed', -2147483648, 2147483647);
   const f = r.finial;
   if (f !== undefined && f !== null && f !== false && f !== true && typeof f !== 'string' && !(Array.isArray(f) && f.length > 0 && f.every((s) => typeof s === 'string')))
     roofError(`finial must be true, a block id or a list of block ids, got ${typeName(f)}`);
@@ -879,13 +906,11 @@ export function validateRoofParams(p: RoofParams): void {
  * Round styles (cone, round spire, dome) derive each stair's facing from its higher neighbours
  * so rings read as smooth circles with inner/outer corners at the steps.
  */
-export function roof(p: RoofParams, reg: Registry, emit: StateSink): void {
+export function roof(p: RoofParams, reg: Registry, emit: StateSink): RoofExtent {
   validateRoofParams(p);
   const style = p.style;
   const round = style === 'cone' || (p.round ?? style === 'dome');
   const mats = roofMaterials(reg, p.stairs, p.slab);
-  const fillState = p.fill === true ? mats.full : typeof p.fill === 'string' ? reg.canonical(p.fill) : null;
-  const endsState = p.ends ? reg.canonical(p.ends) : null;
   const b = vBox(p.box, 'box');
   const [fx0, y0, fz0] = b.min;
   const [fx1, , fz1] = b.max;
@@ -971,6 +996,28 @@ export function roof(p: RoofParams, reg: Registry, emit: StateSink): void {
           T[idx(x, z)] = 2 - (j <= F ? kick * j : kick * F + drop * (j - F));
         }
       }
+    // 45° runs: where a ring is only diagonally connected (a cell higher on two adjacent sides and lower on
+    // the other two) raise its two lower neighbours to its level → every diagonal step becomes the
+    // builder's outer + inner stair zigzag instead of a notch. One pass only: cascading squares the cone.
+    {
+      const raise: number[] = [];
+      for (let z = Z0; z <= Z1; z++)
+        for (let x = X0; x <= X1; x++) {
+          const i = idx(x, z);
+          const t = T[i];
+          if (t === NONE) continue;
+          let hb = 0, lb = 0;
+          for (const [bit, , dx, dz] of DIR_BITS) {
+            const tn = x + dx >= X0 && x + dx <= X1 && z + dz >= Z0 && z + dz <= Z1 ? T[idx(x + dx, z + dz)] : NONE;
+            if (tn > t) hb |= bit;
+            else if (tn < t) lb |= bit;
+          }
+          if (popcount4(hb) !== 2 || hb === (DN | DS) || hb === (DE | DW) || lb !== (~hb & 15)) continue;
+          for (const [bit, , dx, dz] of DIR_BITS)
+            if (lb & bit && x + dx >= X0 && x + dx <= X1 && z + dz >= Z0 && z + dz <= Z1 && T[idx(x + dx, z + dz)] >= 2) raise.push(idx(x + dx, z + dz), t);
+        }
+      for (let n = 0; n < raise.length; n += 2) if (T[raise[n]] < raise[n + 1]) T[raise[n]] = raise[n + 1];
+    }
   } else if (round) {
     // round dome: radial profile over the ellipse inscribed in box + overhang
     closedAll = true;
@@ -1041,11 +1088,11 @@ export function roof(p: RoofParams, reg: Registry, emit: StateSink): void {
     const H = pitch * (Emax + 0.5);
     const minSlope = Emax > 0 ? Math.min(0.5, H / Emax) : 0;
     const hOf = (e: number) => (Emax > 0 ? minSlope * e + (H - minSlope * Emax) * Math.pow(e / Emax, sweep) : H);
-    // lift (half blocks) by distance s from the hip line, fading out toward the ridge: changes ≤ 1 half block
-    // per cell, so the eave corners curl up in slab/stairs flicks (no hanging columns)
-    const span = Math.max(3, 4 * lift);
-    const liftH = (s: number, e: number) =>
-      Math.round(2 * lift * Math.pow(Math.max(0, 1 - s / span), 2) * (Emax > 0 ? Math.pow(Math.max(0, 1 - e / (Emax + 0.5)), 3) : 0));
+    // corner upturn: a concave "tent" around each eave corner, T = max(slope, rim + P(m)) with m the
+    // Chebyshev distance from the corner; P drops ≤ 1 half block per cell, so the eave rises slab, stair,
+    // slab… into the tip and the lifted cells face the corner (outer stairs on the diagonal)
+    const span = Math.max(1, Math.min(2 * lift + 2, Math.floor(Emax)));
+    const liftP = (m: number) => (lift > 0 && m < span ? Math.round(2 * lift * Math.pow((span - m) / span, 1.5) + EPS) : 0);
     // one height per hip ring (e = rings from the eave rim); slab rings only where the slope is gentle
     const eMax = Math.floor(Emax + EPS);
     const ringT = new Int32Array(eMax + 2);
@@ -1061,7 +1108,6 @@ export function roof(p: RoofParams, reg: Registry, emit: StateSink): void {
         const i = idx(x, z);
         const exd = Math.min(x - X0, X1 - x), ezd = Math.min(z - Z0, Z1 - z);
         const e = Math.min(exd, ezd);
-        const s = Math.abs(exd - ezd);
         let u = 0;
         if (Math.abs(exd - ezd) < 1e-6) {
           const a = xBit(x), c = zBit(z);
@@ -1074,8 +1120,14 @@ export function roof(p: RoofParams, reg: Registry, emit: StateSink): void {
           u = zBit(z);
           if (!u) cap[i] = 1;
         }
-        T[i] = base + ringT[Math.min(e, eMax + 1)] + liftH(s, e);
+        T[i] = base + ringT[Math.min(e, eMax + 1)];
         U[i] = u;
+        const up = base + ringT[0] + liftP(Math.max(exd, ezd));
+        if (up > T[i]) {
+          T[i] = up;
+          cap[i] = 0;
+          U[i] = exd === ezd ? OPP_BIT[xBit(x)] | OPP_BIT[zBit(z)] : exd < ezd ? OPP_BIT[zBit(z)] : OPP_BIT[xBit(x)];
+        }
       }
     // ridge caps: half a block above the highest slope next to them (no full-block ridge walls)
     for (let z = Z0; z <= Z1; z++)
@@ -1200,6 +1252,40 @@ export function roof(p: RoofParams, reg: Registry, emit: StateSink): void {
       for (let x = Math.max(X0, sb.min[0]); x <= Math.min(X1, sb.max[0]); x++) T[idx(x, z)] = NONE;
   }
 
+  // --- fill / ends sources (compiled here: gradients span the roof's own height) -----------
+  let tMax = NONE;
+  for (let i = 0; i < T.length; i++) if (T[i] > tMax) tMax = T[i];
+  const srcBounds: Box = { min: [fx0, y0, fz0], max: [fx1, y0 + Math.max(0, Math.floor((tMax - 1) / 2)), fz1] };
+  const stateSource = (v: unknown, k: string): PatternFn | null => {
+    if (v === undefined || v === null || v === false) return null;
+    if (v === true) return () => mats.full;
+    if (typeof v === 'function') {
+      // caller functions may return any spelling: canonicalize (cached)
+      const fn = v as PatternFn, cache = new Map<string, string>();
+      return (x, y, z) => {
+        const r = fn(x, y, z);
+        if (r === null || r === undefined) return null;
+        let c = cache.get(r);
+        if (c === undefined) {
+          try {
+            c = reg.canonical(r);
+          } catch (e) {
+            roofError(`${k}: ${(e as Error).message}`);
+          }
+          cache.set(r, c);
+        }
+        return c;
+      };
+    }
+    try {
+      return compilePattern(v as PatternSpec, reg, { seed: p.seed ?? 0, bounds: srcBounds });
+    } catch (e) {
+      roofError(`${k}: ${(e as Error).message}`);
+    }
+  };
+  const fillSrc = stateSource(p.fill, 'fill');
+  const endsSrc = stateSource(p.ends, 'ends');
+
   // --- pieces --------------------------------------------------------------------------
   type Piece = { kind: 'stairs'; facing: Dir4; half: 'bottom' | 'top'; mat?: string } | { kind: 'slab' } | { kind: 'full' };
   const piece = new Array<Piece | null>(NX * NZ).fill(null);
@@ -1269,19 +1355,28 @@ export function roof(p: RoofParams, reg: Registry, emit: StateSink): void {
           if (0 < low) low = 0;
         }
       }
-      const yLow = Math.min(Math.floor(low / 2), yLowExtra);
+      // down to the lower neighbour's own top-piece block (not one above it): every step shares a face with
+      // the step below, so the whole roof is one 6-connected piece (no diagonal-only contacts)
+      const yLow = Math.min(yTopOf(low), yLowExtra);
       for (let y = yLow; y < yTop; y++) put(x, y0 + y, z, { kind: 'full' });
       let bottom = Math.min(yLow, yTop);
       colBottom[i] = y0 + bottom;
       // gable end walls
-      if (endsState && inFoot(x, z) && (style === 'gable' || style === 'gambrel' || style === 'shed')) {
+      if (endsSrc && inFoot(x, z) && (style === 'gable' || style === 'gambrel' || style === 'shed')) {
         const isEnd = axis === 'x' ? x === fx0 || x === fx1 : z === fz0 || z === fz1;
         if (isEnd) {
-          for (let y = 0; y < bottom; y++) put(x, y0 + y, z, endsState);
+          for (let y = 0; y < bottom; y++) {
+            const st = endsSrc(x, y0 + y, z);
+            if (st) put(x, y0 + y, z, st);
+          }
           bottom = 0;
         }
       }
-      if (fillState && inFoot(x, z)) for (let y = 0; y < bottom; y++) put(x, y0 + y, z, fillState);
+      if (fillSrc && inFoot(x, z))
+        for (let y = 0; y < bottom; y++) {
+          const st = fillSrc(x, y0 + y, z);
+          if (st) put(x, y0 + y, z, st);
+        }
     }
 
   // --- eave details: fascia (outer rim), soffit (ring along the walls), brackets ----------
@@ -1401,6 +1496,21 @@ export function roof(p: RoofParams, reg: Registry, emit: StateSink): void {
   };
   const slabState = mats.slab ? reg.canonical(`${mats.slab}[type=bottom]`) : mats.full;
   const entries = [...out.values()].sort((a, c) => a.y - c.y || a.z - c.z || a.x - c.x);
+  const ext: RoofExtent = { min: [...b.min], max: [...b.min], topY: y0, ridgeY: y0, blocks: entries.length };
+  if (entries.length) {
+    ext.min = [Infinity, Infinity, Infinity];
+    ext.max = [-Infinity, -Infinity, -Infinity];
+    for (const e of entries) {
+      if (e.x < ext.min[0]) ext.min[0] = e.x;
+      if (e.y < ext.min[1]) ext.min[1] = e.y;
+      if (e.z < ext.min[2]) ext.min[2] = e.z;
+      if (e.x > ext.max[0]) ext.max[0] = e.x;
+      if (e.y > ext.max[1]) ext.max[1] = e.y;
+      if (e.z > ext.max[2]) ext.max[2] = e.z;
+    }
+    ext.topY = ext.max[1];
+    ext.ridgeY = tMax === NONE ? y0 : y0 + yTopOf(tMax);
+  }
   for (const e of entries) {
     const st = e.st;
     if (typeof st === 'string') emit(e.x, e.y, e.z, st);
@@ -1408,6 +1518,31 @@ export function roof(p: RoofParams, reg: Registry, emit: StateSink): void {
     else if (st.kind === 'slab') emit(e.x, e.y, e.z, slabState);
     else emit(e.x, e.y, e.z, stairsState(st.mat ?? mats.stairs, st.facing, st.half, stairsShapeFor(e.x, e.y, e.z, st.facing, st.half, stairAt)));
   }
+  return ext;
+}
+
+/** Extent of a roof without placing it (runs the generator into a null sink). */
+export function roofExtent(p: RoofParams, reg: Registry): RoofExtent {
+  return roof(p, reg, () => {});
+}
+
+/**
+ * Does the roof (eaves, finial, brackets included) fit inside `allowed`? null if it does, else an
+ * agent-readable reason, e.g. "roof reaches y=84 but the allowed box ends at y=80 — lower pitch/overhang".
+ * Coordinates are those of p.box (pass both in the same frame).
+ */
+export function checkRoofFits(p: RoofParams, reg: Registry, allowed: Box, ext: RoofExtent = roofExtent(p, reg)): string | null {
+  const a = nb(allowed);
+  const issues: string[] = [];
+  if (!ext.blocks) return null;
+  if (ext.max[1] > a.max[1]) issues.push(`roof reaches y=${ext.max[1]} (ridge y=${ext.ridgeY}) but the allowed box ends at y=${a.max[1]} — lower pitch${p.finial ? ', drop the finial' : ''} or start the roof lower`);
+  if (ext.min[1] < a.min[1]) issues.push(`roof eaves reach down to y=${ext.min[1]} but the allowed box starts at y=${a.min[1]} — reduce overhang`);
+  const axes = ['x', '', 'z'];
+  for (const k of [0, 2]) {
+    if (ext.min[k] < a.min[k]) issues.push(`roof overhang reaches ${axes[k]}=${ext.min[k]} but the allowed box starts at ${axes[k]}=${a.min[k]} — reduce overhang`);
+    if (ext.max[k] > a.max[k]) issues.push(`roof overhang reaches ${axes[k]}=${ext.max[k]} but the allowed box ends at ${axes[k]}=${a.max[k]} — reduce overhang`);
+  }
+  return issues.length ? issues.join('; ') : null;
 }
 
 /** pinwheel corner rule: of two uphill bits pick the one whose CCW neighbour is the other (→ outer_left) */

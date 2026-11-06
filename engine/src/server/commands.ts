@@ -3,6 +3,7 @@
 
 import type { Box, Vec3 } from '../core/types.ts';
 import type { Frame } from '../core/frame.ts';
+import { summonNbtProblem } from '../core/safety.ts';
 
 const DECORATIVE_ENTITIES = new Set([
   'armor_stand', 'item_frame', 'glow_item_frame', 'painting', 'block_display', 'item_display', 'text_display', 'interaction',
@@ -50,7 +51,11 @@ export function checkCommand(cmd: string, opts: { allowedBox: Box; extra?: strin
       if (typeof p === 'string') return `summon needs absolute x y z: ${p}`;
       if (!inBox(b, p[0]!, p[1]!, p[2]!)) return `position ${p.join(' ')} is outside the allowed build box ${b.min.join(',')}..${b.max.join(',')}`;
       if (FORBIDDEN_WORDS.test(tokens.slice(5).join(' ').replace(/\{.*\}/s, ''))) return 'forbidden content in summon arguments';
-      if (/Passengers|command_block|CustomNameVisible:1b.*run|"run_command"/i.test(c) && /command/i.test(c)) return 'entity data with commands is not allowed';
+      const nbtAt = c.indexOf('{');
+      if (nbtAt >= 0) {
+        const problem = summonNbtProblem(c.slice(nbtAt), DECORATIVE_ENTITIES);
+        if (problem) return problem;
+      } else if (/command_block|run_command/i.test(c)) return 'entity data with commands is not allowed';
       return null;
     }
     case 'fillbiome': {

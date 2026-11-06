@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { roof, roofMaterials, validateRoofParams, type RoofParams } from '../../src/core/shapes.ts';
+import { roof, roofMaterials, validateRoofParams, roofExtent, checkRoofFits, type RoofParams } from '../../src/core/shapes.ts';
 import { parseBlockState } from '../../src/core/blockstate.ts';
 import { RegistryError } from '../../src/core/registry.ts';
 import { executeOps, OpError, type BuildOp } from '../../src/core/dsl.ts';
@@ -131,7 +131,8 @@ test('fill: true maps every registry stairs block to its full block', () => {
 test('roof params are validated with clear RegistryErrors', () => {
   const base: RoofParams = { box: { min: [0, 0, 0], max: [6, 0, 6] }, style: 'hip', stairs: 'oak_stairs' };
   const bad: [Record<string, unknown>, RegExp][] = [
-    [{ fill: 3 }, /roof: fill must be true or a block id, got number/],
+    [{ fill: 3 }, /roof: fill must be true, a block id, a pattern .* or a state function, got number/],
+    [{ ends: false, fill: 'not_a_block' }, /roof: fill: .*Unknown block/],
     [{ fill: 'not_a_block' }, /Unknown block/],
     [{ style: 'nope' }, /unknown style/],
     [{ round: true }, /round is only supported for dome, spire and cone/],
@@ -173,33 +174,150 @@ test('dsl roof op passes the new params through (skipBox, finial, fill:true)', (
   assert.throws(() => executeOps([{ op: 'roof', box: [[0, 0, 0], [4, 0, 4]], style: 'hip', stairs: 'oak_stairs', round: true }] as BuildOp[], { sink, reg, frame: Frame.identity(reg) }), (e: unknown) => e instanceof OpError && /round is only supported/.test((e as Error).message));
 });
 
-test('cone rings: one height per ring, 8-fold symmetric, monotone, 2-high rings at pitch 2, eave kick', () => {
+test('cone rings: level rings (45° seam cells lifted one step), 8-fold symmetric, monotone, eave kick', () => {
   for (const r of [3, 4, 5, 7])
     for (const pitch of [1, 2]) {
       const label = `cone r=${r} p=${pitch}`;
       const m = build({ box: { min: [-r, 0, -r], max: [r, 0, r] }, style: 'cone', stairs: 'spruce_stairs', pitch, overhang: 1 });
       const top = new Map<string, number>();
       for (const k of m.keys()) { const [x, y, z] = xyz(k); top.set(`${x},${z}`, Math.max(top.get(`${x},${z}`) ?? -99, y)); }
-      const ring = new Map<number, Set<number>>();
+      const ring = new Map<number, Map<number, string[]>>();
       for (const [ck, y] of top) {
         const [x, z] = ck.split(',').map(Number);
         for (const [a, b] of [[z, x], [-x, z], [x, -z]]) assert.equal(top.get(`${a},${b}`), y, `${label}: asymmetric at ${ck}`);
         const s = r + 0.5 - Math.hypot(x, z);
         if (s < 0) { assert.equal(y, 0, `${label}: eave kick slab at ${ck}`); continue; }
         const k = Math.floor(s + 1e-9);
-        if (!ring.has(k)) ring.set(k, new Set());
-        ring.get(k)!.add(y);
+        if (!ring.has(k)) ring.set(k, new Map());
+        const ys = ring.get(k)!;
+        if (!ys.has(y)) ys.set(y, []);
+        ys.get(y)!.push(ck);
       }
       const ks = [...ring.keys()].sort((a, b) => a - b);
       let prev = -1;
       for (const k of ks.slice(0, -1)) {
-        // the apex ring may be capped lower; every other ring is level all the way round
-        assert.equal(ring.get(k)!.size, 1, `${label}: ring ${k} heights ${[...ring.get(k)!]}`);
-        const y = [...ring.get(k)!][0];
-        assert.equal(y - prev, pitch, `${label}: ring ${k} rise`);
-        prev = y;
+        // the apex ring may be capped lower; every other ring is level, except diagonal seam cells lifted to the next ring
+        const ys = ring.get(k)!;
+        const base = Math.min(...ys.keys());
+        assert.equal(base - prev, pitch, `${label}: ring ${k} rise`);
+        for (const [y, cells] of ys) {
+          if (y === base) continue;
+          assert.equal(y, base + pitch, `${label}: ring ${k} heights ${[...ys.keys()]}`);
+          assert.ok(ys.get(base)!.length > cells.length, `${label}: ring ${k} mostly level`);
+          for (const ck of cells) { const [x, z] = ck.split(',').map(Number); assert.ok(x !== 0 && z !== 0, `${label}: axis cell ${ck} lifted`); }
+        }
+        prev = base;
       }
       // eave ring is a bottom slab ring (flare 1)
       assert.equal(m.get(key(r + 1, 0, 0)), reg.canonical('spruce_slab[type=bottom]'), label);
     }
+});
+
+test('swept_hip lift: eave rims rise smoothly (≤ 1 block per cell) into corner tips lift blocks up, stairs facing the corner', () => {
+  for (const lift of [1, 2, 3]) {
+    const m = build({ box: { min: [-7, 0, -5], max: [7, 0, 5] }, style: 'swept_hip', stairs: 'oak_stairs', lift });
+    const z = -7; // north rim (overhang 2)
+    const mid = topY(m, 0, z);
+    let prev = mid;
+    for (let x = -1; x >= -9; x--) {
+      const y = topY(m, x, z);
+      assert.ok(y >= prev && y - prev <= 1, `lift ${lift}: rim not smooth at x=${x} (${prev} → ${y})`);
+      prev = y;
+      const st = parseBlockState(m.get(key(x, y, z))!);
+      if (y > mid && x > -9 && st.name.endsWith('_stairs')) assert.equal(st.props.facing, 'west', `lift ${lift}: upturn stairs at x=${x} face the corner`);
+    }
+    assert.equal(prev - mid, lift, `lift ${lift}: tip height`);
+    // 4-fold symmetric tips
+    for (const [x, zz] of [[9, -7], [-9, 7], [9, 7]]) assert.equal(topY(m, x, zz), prev, `lift ${lift}: tip ${x},${zz}`);
+  }
+  // lift 0: flat eave rim
+  const m0 = build({ box: { min: [-7, 0, -5], max: [7, 0, 5] }, style: 'swept_hip', stairs: 'oak_stairs', lift: 0 });
+  assert.equal(topY(m0, -9, -7), topY(m0, 0, -7));
+});
+
+test('roof fill/ends: patterns, PatternSpecs and state functions', () => {
+  const box = { min: [0, 5, 0] as [number, number, number], max: [8, 5, 6] as [number, number, number] };
+  const m = build({ box: { min: [0, 5, 0], max: [8, 5, 14] }, style: 'gable', axis: 'x', stairs: 'spruce_stairs', ends: '50%white_terracotta,50%calcite', seed: 3 });
+  const endIds = new Set([...m].filter(([k]) => xyz(k)[0] === 0 && xyz(k)[2] >= 0 && xyz(k)[2] <= 14).map(([, s]) => s));
+  assert.ok(endIds.has('minecraft:white_terracotta') && endIds.has('minecraft:calcite'), [...endIds].join());
+  // function: only even layers, null leaves holes
+  const f = build({ box, style: 'gable', axis: 'x', stairs: 'spruce_stairs', fill: (_x, y) => (y % 2 === 0 ? 'stone' : null) });
+  const fillYs = new Set([...f].filter(([, s]) => s === 'minecraft:stone').map(([k]) => xyz(k)[1]));
+  assert.ok(fillYs.size > 0 && [...fillYs].every((y) => y % 2 === 0), [...fillYs].join());
+  // gradient PatternSpec spans the roof height
+  const g = build({ box: { min: [0, 5, 0], max: [8, 5, 14] }, style: 'gable', axis: 'x', stairs: 'spruce_stairs', fill: { type: 'gradient', axis: 'y', stops: ['stone', 'andesite'] } });
+  const gv = new Set(g.values());
+  assert.ok(gv.has('minecraft:stone') && gv.has('minecraft:andesite'));
+  // DSL: PatternSpec ends pass through, same seed → same result
+  const run = () => {
+    const sink = new MapSink();
+    executeOps([{ op: 'roof', box: [[0, 5, 0], [8, 5, 6]], style: 'gable', axis: 'x', stairs: 'spruce_stairs', ends: [{ block: 'white_terracotta', weight: 3 }, { block: 'calcite' }], seed: 7 }] as BuildOp[], { sink, reg, frame: Frame.identity(reg) });
+    return [...sink.m].sort().join();
+  };
+  assert.equal(run(), run());
+  assert.match(run(), /calcite/);
+  // errors name the parameter
+  assert.throws(() => build({ box, style: 'gable', stairs: 'spruce_stairs', ends: '50%nope_block,50%calcite' }), (e: unknown) => e instanceof RegistryError && /ends:/.test((e as Error).message));
+  assert.throws(() => build({ box, style: 'gable', stairs: 'spruce_stairs', ends: true as never }), (e: unknown) => e instanceof RegistryError && /ends must be/.test((e as Error).message));
+  assert.throws(() => build({ box, style: 'gable', stairs: 'spruce_stairs', fill: () => 'nope_block' }), (e: unknown) => e instanceof RegistryError && /fill:/.test((e as Error).message));
+});
+
+test('roofExtent / checkRoofFits / DSL "roof top at y=N"', () => {
+  const p: RoofParams = { box: { min: [0, 10, 0], max: [8, 10, 6] }, style: 'hip', stairs: 'oak_stairs' };
+  const m = build(p);
+  const ys = [...m.keys()].map((k) => xyz(k)[1]), xs = [...m.keys()].map((k) => xyz(k)[0]);
+  const ext = roofExtent(p, reg);
+  assert.equal(ext.blocks, m.size);
+  assert.equal(ext.topY, Math.max(...ys));
+  assert.equal(ext.ridgeY, ext.topY);
+  assert.deepEqual([ext.min[0], ext.max[0], ext.min[1]], [Math.min(...xs), Math.max(...xs), Math.min(...ys)]);
+  assert.deepEqual(roof(p, reg, () => {}), ext);
+  assert.equal(checkRoofFits(p, reg, { min: [-5, 0, -5], max: [20, ext.topY, 20] }), null);
+  const msg = checkRoofFits(p, reg, { min: [-5, 0, -5], max: [20, ext.topY - 2, 20] });
+  assert.match(msg!, new RegExp(`roof reaches y=${ext.topY} .*allowed box ends at y=${ext.topY - 2} — lower pitch`));
+  assert.match(checkRoofFits(p, reg, { min: [0, 0, 0], max: [20, 99, 20] })!, /overhang reaches x=-1 .*starts at x=0 — reduce overhang/);
+  // finial counts for topY but not for ridgeY
+  const fe = roofExtent({ ...p, finial: true }, reg);
+  assert.equal(fe.ridgeY, ext.ridgeY);
+  assert.ok(fe.topY >= ext.topY + 2);
+  // DSL reports world y (frame offset applied)
+  const sink = new MapSink();
+  const res = executeOps([{ op: 'roof', box: [[0, 10, 0], [8, 10, 6]], style: 'hip', stairs: 'oak_stairs', finial: true }] as BuildOp[], { sink, reg, frame: Frame.identity(reg) });
+  assert.ok(res[0].warnings.includes(`roof top at y=${fe.topY} (ridge y=${fe.ridgeY})`), res[0].warnings.join('|'));
+});
+
+test('roofs are one 6-connected (face-connected) piece standing on the wall top', () => {
+  const components = (m: Map<string, string>) => {
+    const seen = new Set<string>();
+    let n = 0;
+    for (const k0 of m.keys()) {
+      if (seen.has(k0)) continue;
+      n++;
+      const stack = [k0];
+      seen.add(k0);
+      while (stack.length) {
+        const [x, y, z] = xyz(stack.pop()!);
+        for (const [dx, dy, dz] of [[1, 0, 0], [-1, 0, 0], [0, 1, 0], [0, -1, 0], [0, 0, 1], [0, 0, -1]]) {
+          const q = key(x + dx, y + dy, z + dz);
+          if (m.has(q) && !seen.has(q)) { seen.add(q); stack.push(q); }
+        }
+      }
+    }
+    return n;
+  };
+  const cases: RoofParams[] = [];
+  for (const style of ['cone', 'spire', 'dome'] as const)
+    for (const r of [2, 3, 4, 5, 7, 9])
+      for (const pitch of [undefined, 0.5, 1, 2, 3])
+        for (const overhang of [0, 1, 2]) cases.push({ box: { min: [-r, 4, -r], max: [r, 4, r] }, style, stairs: 'oak_stairs', pitch, overhang, round: true });
+  for (const style of ['gable', 'hip', 'pyramid', 'shed', 'mansard', 'gambrel', 'swept_hip', 'flat', 'spire'] as const)
+    for (const pitch of [undefined, 0.5, 1, 2]) for (const overhang of [0, 1]) cases.push({ box: { min: [0, 4, 0], max: [8, 4, 6] }, style, stairs: 'oak_stairs', pitch, overhang });
+  for (const style of ['cone', 'dome', 'hip', 'swept_hip'] as const) cases.push({ box: { min: [-5, 4, -5], max: [5, 4, 5] }, style, stairs: 'oak_stairs', soffit: true, fascia: true, brackets: true, finial: true, lift: style === 'swept_hip' ? 3 : undefined });
+  for (const p of cases) {
+    const m = build(p);
+    const label = JSON.stringify({ ...p, box: undefined, stairs: undefined, r: (p.box as { max: number[] }).max[0] });
+    assert.equal(components(m), 1, `${label}: not one face-connected piece`);
+    // rests on the wall top: something at the base layer inside the footprint (y = box.min.y)
+    assert.ok([...m.keys()].some((k) => { const [x, y, z] = xyz(k); const b = p.box as { min: number[]; max: number[] }; return y === 4 && x >= b.min[0] && x <= b.max[0] && z >= b.min[2] && z <= b.max[2]; }), `${label}: touches the wall top`);
+  }
 });

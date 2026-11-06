@@ -50,7 +50,9 @@ export function jobContextPrompt(job: Job, cfg: Config): string {
   return [
     `## Current job ${job.id}`,
     `Player: ${job.player}. Anchor (local origin): ${job.req.anchor.join(',')} facing ${job.req.facing}.`,
-    `Allowed build box (world): ${b.min.join(',')} .. ${b.max.join(',')} (${size.join('x')}).${job.req.selection ? ' (= the player\'s selection)' : ''}`,
+    job.req.selection
+      ? `Player's selection (primary build area, world): ${job.req.selection.min.join(',')} .. ${job.req.selection.max.join(',')}. Allowed box incl. margin for supports/terrain/paths/trees: ${b.min.join(',')} .. ${b.max.join(',')} (${size.join('x')}).`
+      : `Allowed build box (world): ${b.min.join(',')} .. ${b.max.join(',')} (${size.join('x')}).`,
     `Limits: ${cfg.maxBlocksPerCall.toLocaleString('en')} blocks per tool call, ${cfg.maxBlocksPerJob.toLocaleString('en')} per job, budget $${job.req.budgetUsd ?? cfg.budgetUsd}.`,
     job.req.options?.style ? `Requested style: ${job.req.options.style}.` : '',
     job.req.options?.mode === 'plan' ? 'Mode: PLAN — do not build; describe the plan, show it with say/finish.' : '',

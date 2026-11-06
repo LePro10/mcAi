@@ -73,3 +73,34 @@ export function expandToComponents(box: Box, built: PosMap<boolean>, opts: { max
   }
   return { min: [min[0], min[1], min[2]], max: [max[0], max[1], max[2]] };
 }
+
+/** terraform materials: re-shaped ground the cutaway may still remove */
+const SOIL = new Set([
+  'grass_block', 'dirt', 'coarse_dirt', 'rooted_dirt', 'podzol', 'mycelium', 'sand', 'red_sand', 'gravel', 'mud', 'clay', 'snow_block', 'stone',
+]);
+
+/**
+ * Positions the renderer must never cut away: everything this job placed (non-air) except plain
+ * terraform soil (grass/dirt/sand/stone fill). Agent-placed andesite, sandstone, terracotta, plants … stay.
+ */
+export function keepMask(batches: Iterable<EditBatch>, maxPositions = 3_000_000): PosMap<boolean> {
+  const m = new PosMap<boolean>();
+  const cache = new Map<string, boolean>();
+  for (const bt of batches) {
+    const n = bt.states.length;
+    for (let i = 0; i < n; i++) {
+      const s = bt.palette[bt.states[i]];
+      let k = cache.get(s);
+      if (k === undefined) {
+        k = !isAir(s) && !SOIL.has(blockId(s).slice(10));
+        cache.set(s, k);
+      }
+      const x = bt.positions[3 * i], y = bt.positions[3 * i + 1], z = bt.positions[3 * i + 2];
+      if (k) {
+        if (m.size >= maxPositions) return m;
+        m.set(x, y, z, true);
+      } else m.delete(x, y, z);
+    }
+  }
+  return m;
+}

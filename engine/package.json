@@ -1,7 +1,7 @@
 {
   "name": "mcai-engine",
   "version": "2.0.0",
-  "description": "mcAI engine: AI architect for Minecraft — building engine, simulation, renderer, MCP server and Claude Code agent runner",
+  "description": "mcAI engine: AI architect for Minecraft \u2014 building engine, simulation, renderer, MCP server and Claude Code agent runner",
   "type": "module",
   "license": "MIT",
   "engines": {
@@ -12,7 +12,7 @@
   },
   "scripts": {
     "check": "tsc --noEmit",
-    "test": "node --test --test-concurrency=4 \"test/**/*.test.ts\"",
+    "test": "node --test --test-concurrency=4 --test-timeout=120000 \"test/**/*.test.ts\"",
     "serve": "node src/cli.ts serve",
     "sim": "node src/cli.ts sim"
   },

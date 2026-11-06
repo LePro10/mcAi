@@ -31,11 +31,16 @@ const CCW: Record<HDir, HDir> = { north: 'west', west: 'south', south: 'east', e
 const DIRS: Dir[] = ['north', 'south', 'east', 'west', 'up', 'down'];
 const HDIRS: HDir[] = ['north', 'south', 'east', 'west'];
 
+// Face support bits, mirroring vanilla SupportType (verified against the decompiled 26.3 code:
+// Block.canSupportCenter / SupportType / VoxelShape.getFaceShape — the face is the slice of the
+// support shape AT the block boundary, so a top slab has no bottom face and a bottom slab no top face).
 export const NONE = 0;
-/** center of the face can hold a post-mounted block (torch, lantern, candle) */
+/** the 2x2-pixel center column is covered (SupportType.CENTER): torches, lanterns, candles, hanging signs */
 export const CENTER = 1;
-/** full sturdy face (vines, ladders, wall torches, buttons, rails …) */
-export const FULL = 2;
+/** the outer 2-pixel ring is covered (SupportType.RIGID): rails, repeaters, comparators */
+export const RIGID = 2;
+/** full sturdy face (SupportType.FULL): vines, ladders, wall torches, buttons, doors */
+export const FULL = 3;
 
 /** state at a position, or undefined when unknown (unknown = assume supported) */
 export type SupportGetter = (x: number, y: number, z: number) => string | undefined;
@@ -53,7 +58,7 @@ export const KINDS = {
   multiface: K('multiface', 'glow lichen/sculk vein faces', 'each face needs a solid block on that side'),
   wall: K('wall', 'wall-mounted blocks', 'wall torches, ladders, signs, banners, buttons, levers, hooks and buds need a solid block behind them (opposite to facing)'),
   floor: K('floor', 'unsupported torches/lanterns/candles', 'they need a full or post-like block below (fence, wall, chain, top slab — not a bottom slab, chest or air)'),
-  hanging: K('hanging', 'hanging blocks without a ceiling', 'hanging lanterns/signs, roots, spore blossoms and cave vines need a block above (chain, fence or solid)'),
+  hanging: K('hanging', 'hanging blocks without a ceiling', 'hanging lanterns/signs, roots, spore blossoms and cave vines need a block above with a bottom face: full block, bottom slab, bottom-half stairs, chain or fence (top slabs, upside-down stairs and top trapdoors have none)'),
   plant: K('plant', 'plants on wrong ground', 'flowers, grass, saplings and bushes need grass_block/dirt/moss/mud/farmland below (crops: farmland; cactus: sand; dead bush/dry grass: sand or terracotta too)'),
   cover: K('cover', 'unsupported carpets/plates/rails/snow', 'carpets, pressure plates, rails, redstone, snow layers and doors need a solid block below'),
   water: K('water', 'misplaced water plants', 'lily pads need water below; seagrass/kelp/coral need a solid floor'),
@@ -188,13 +193,14 @@ function computeFace(reg: Registry, state: string, face: Dir): number {
     const f = p('facing');
     return vertical && (f === 'up' || f === 'down') ? CENTER : !vertical && face === f ? CENTER : NONE;
   }
-  if (s === 'hopper') return face === 'up' ? FULL : face === 'down' ? CENTER : NONE;
+  if (s === 'hopper') return face === 'up' ? RIGID : face === 'down' ? CENTER : NONE; // bowl rim, spout
   if (s.endsWith('_carpet')) return face === 'down' ? FULL : NONE;
   if (s === 'scaffolding') return face === 'up' ? FULL : NONE;
   if (s === 'chest' || s === 'trapped_chest' || s === 'ender_chest' || s.endsWith('copper_chest')) return face === 'down' ? CENTER : NONE;
-  if (s.endsWith('_wall') || s.endsWith('_fence_gate')) return vertical ? CENTER : NONE;
+  if (s.endsWith('_fence_gate')) return face === 'up' && p('open') !== 'true' ? CENTER : NONE; // #unstable_bottom_center
+  if (s.endsWith('_wall')) return vertical ? CENTER : NONE;
   if (s === 'mangrove_roots' || s === 'composter') return FULL;
-  if (s === 'cauldron' || s.endsWith('_cauldron')) return face === 'up' ? NONE : FULL;
+  if (s === 'cauldron' || s.endsWith('_cauldron')) return face === 'up' ? RIGID : NONE; // rim ring; legs cut the sides/bottom
   if (s === 'pointed_dripstone') return vertical ? CENTER : NONE;
   if (s === 'lectern' || s === 'stonecutter' || s === 'enchanting_table' || s === 'daylight_detector' || s.endsWith('_bed')) return face === 'down' ? FULL : NONE;
   if (s === 'anvil' || s === 'chipped_anvil' || s === 'damaged_anvil') return face === 'up' ? CENTER : NONE;
@@ -206,7 +212,7 @@ const has = (c: SupportCtx, get: SupportGetter, x: number, y: number, z: number,
   const v = DIR_VEC[d];
   const s = get(x + v[0], y + v[1], z + v[2]);
   if (s === undefined) return true;
-  return c.face(s, OPPOSITE[d]) >= level;
+  return (c.face(s, OPPOSITE[d]) & level) === level;
 };
 const at = (get: SupportGetter, x: number, y: number, z: number, d: Dir): string | undefined => {
   const v = DIR_VEC[d];
@@ -260,6 +266,12 @@ function multifaceRule(x: number, y: number, z: number, state: string, get: Supp
   return changed ? { kind: KINDS.multiface, trim: st } : null;
 }
 
+function shortState(s: string): string {
+  const id = sh(s);
+  const half = /[[,](half|type)=(top|bottom|double)/.exec(s);
+  return half ? `${id}[${half[1]}=${half[2]}]` : id;
+}
+
 export function setProp(state: string, prop: string, value: string): string {
   return state.replace(new RegExp(`([\\[,]${prop}=)[a-z0-9_]+`), `$1${value}`);
 }
@@ -281,7 +293,9 @@ const floorCenter: Rule = (x, y, z, _s, get, c) => (has(c, get, x, y, z, 'down',
 const ceilCenter: Rule = (x, y, z, _s, get, c) => (has(c, get, x, y, z, 'up', CENTER) ? null : { kind: KINDS.hanging });
 const ceilFull: Rule = (x, y, z, _s, get, c) => (has(c, get, x, y, z, 'up', FULL) ? null : { kind: KINDS.hanging });
 const floorFullCover: Rule = (x, y, z, _s, get, c) => (has(c, get, x, y, z, 'down', FULL) ? null : { kind: KINDS.cover });
-const floorCenterCover: Rule = (x, y, z, _s, get, c) => (has(c, get, x, y, z, 'down', CENTER) ? null : { kind: KINDS.cover });
+// pressure plates: canSupportRigidBlock || canSupportCenter
+const floorCenterCover: Rule = (x, y, z, _s, get, c) => (has(c, get, x, y, z, 'down', CENTER) || has(c, get, x, y, z, 'down', RIGID) ? null : { kind: KINDS.cover });
+const floorRigid: Rule = (x, y, z, _s, get, c) => (has(c, get, x, y, z, 'down', RIGID) ? null : { kind: KINDS.cover });
 const notEmptyBelow: Rule = (x, y, z, _s, get) => {
   const b = below(get, x, y, z);
   return b === undefined || !isAir(b) ? null : { kind: KINDS.cover };
@@ -323,7 +337,7 @@ const seaFloor = (self: string[], cannot: string): Rule => (x, y, z, _s, get, c)
   if (b === undefined) return null;
   if (self.includes(blockId(b))) return null;
   if (c.tag(b, `minecraft:${cannot}`)) return { kind: KINDS.water };
-  return c.face(b, 'up') >= FULL ? null : { kind: KINDS.water };
+  return c.face(b, 'up') === FULL ? null : { kind: KINDS.water };
 };
 
 const cactusRule: Rule = (x, y, z, _s, get, c) => {
@@ -354,7 +368,7 @@ const snowRule: Rule = (x, y, z, _s, get, c) => {
   if (c.tag(b, 'minecraft:cannot_support_snow_layer')) return { kind: KINDS.cover };
   if (c.tag(b, 'minecraft:support_override_snow_layer')) return null;
   if (blockId(b) === 'minecraft:snow') return propOf(b, 'layers') === '8' ? null : { kind: KINDS.cover };
-  return c.face(b, 'up') >= FULL ? null : { kind: KINDS.cover };
+  return c.face(b, 'up') === FULL ? null : { kind: KINDS.cover };
 };
 
 const dripstone: Rule = (x, y, z, state, get, c) => {
@@ -375,7 +389,7 @@ const scaffoldingRule: Rule = (x, y, z, _s, get, c) => {
     const b = get(xx, yy - 1, zz);
     if (b === undefined) return true;
     if (blockId(b) === 'minecraft:scaffolding') return true; // column: assume the column itself is supported
-    return c.face(b, 'up') >= FULL;
+    return c.face(b, 'up') === FULL;
   };
   if (supportedBase(x, y, z)) return null;
   const seen = new Set<string>([`${x},${z}`]);
@@ -459,7 +473,8 @@ function computeRule(reg: Registry, state: string): Rule | null {
   // floor covers
   if (s.endsWith('_carpet')) return notEmptyBelow;
   if (tag('pressure_plates')) return floorCenterCover;
-  if (tag('rails') || s === 'redstone_wire' || s === 'repeater' || s === 'comparator') return floorFullCover;
+  if (tag('rails') || s === 'repeater' || s === 'comparator') return floorRigid;
+  if (s === 'redstone_wire') return floorFullCover;
   if (s === 'snow') return snowRule;
   if (s === 'leaf_litter') return floorFullCover;
   if (tag('doors')) return doubleLowerHalf(floorFullCover);
@@ -519,6 +534,8 @@ export interface SupportChange {
   kind: SupportKind;
   trimmed: boolean;
   need?: Vec3;
+  /** state found at `need` */
+  found?: string;
 }
 
 export interface SupportReport {
@@ -568,7 +585,9 @@ export function resolveSupport(
       const v = rule(x, y, z, st, g, c);
       if (!v) continue;
       const to = v.trim ?? removedState(st);
-      const ch: SupportChange = { pos: [x, y, z], from: st, to, kind: v.kind, trimmed: v.trim !== undefined, ...(v.need ? { need: v.need } : {}) };
+      const need: Vec3 | undefined = v.need ?? (v.kind === KINDS.hanging ? [x, y + 1, z] : v.kind === KINDS.floor || v.kind === KINDS.plant || v.kind === KINDS.cover || v.kind === KINDS.water ? [x, y - 1, z] : undefined);
+      const found = need ? g(need[0], need[1], need[2]) : undefined;
+      const ch: SupportChange = { pos: [x, y, z], from: st, to, kind: v.kind, trimmed: v.trim !== undefined, ...(need ? { need } : {}), ...(found ? { found } : {}) };
       if (v.warnOnly || opts.mode === 'warn' || (opts.allow && !opts.allow(x, y, z))) {
         if (!warned.has(k)) {
           warned.add(k);
@@ -603,7 +622,7 @@ export function summarizeSupport(changes: SupportChange[], fmt: (p: Vec3) => str
   const out: string[] = [];
   for (const [k, l] of groups) {
     const kind = l[0]!.kind;
-    const samples = l.slice(0, 4).map((ch) => `${fmt(ch.pos)} ${sh(ch.from)}${ch.need ? ` (needs a full block at ${fmt(ch.need)})` : ''}`).join(', ');
+    const samples = l.slice(0, 4).map((ch) => `${fmt(ch.pos)} ${sh(ch.from)}${ch.need ? ` (support cell ${fmt(ch.need)}: ${ch.found ? shortState(ch.found) : '?'})` : ''}`).join(', ');
     const what = k.endsWith(':trim') ? `trimmed ${l.length} ${kind.label} (unsupported faces removed)` : `${verb} ${l.length} ${kind.label}`;
     out.push(`${what} — ${kind.msg}; e.g. ${samples}`);
   }

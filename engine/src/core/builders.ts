@@ -8,6 +8,7 @@ import type { Registry } from './registry.ts';
 import { RegistryError } from './registry.ts';
 import { blockId, isAir } from './blockstate.ts';
 import type { StateSink } from './shapes.ts';
+import { faceSupport, FULL } from './support.ts';
 
 const r2 = (v: number) => Math.round(v * 2) / 2;
 
@@ -171,6 +172,28 @@ export function bridge(p: BridgeParams, reg: Registry, emit: StateSink, get: (x:
     } else put(c.x, Math.round(T) - 1, c.z, deck);
   }
 
+  // diagonal spans: rail cells that only touch at a corner get a connector so fences link up (4-connected)
+  if (rail && width >= 2) {
+    for (const side of [-1, 1]) {
+      const rc = cells.filter((c) => c.edge && Math.sign(c.t) === side).sort((a, b) => a.s - b.s);
+      for (let i = 1; i < rc.length; i++) {
+        const a = rc[i - 1]!, c = rc[i]!;
+        if (Math.abs(a.x - c.x) !== 1 || Math.abs(a.z - c.z) !== 1) continue;
+        const cand = [[c.x, a.z], [a.x, c.z]].map(([x, z]) => ({ x: x!, z: z!, t: (x! - x0) * vx + (z! - z0) * vz }));
+        if (cand.some((q) => railY.has(`${q.x},${q.z}`))) continue;
+        const q = cand.sort((u, v) => side * v.t - side * u.t)[0]!; // the outer one
+        const ry = Math.min(railY.get(`${a.x},${a.z}`) ?? Math.floor(a.T), railY.get(`${c.x},${c.z}`) ?? Math.floor(c.T));
+        const T = Math.min(a.T, c.T);
+        const k = Math.floor(T);
+        if (T - k >= 0.25) {
+          if (slabTop) put(q.x, k - 1, q.z, slabTop);
+        } else put(q.x, k - 1, q.z, deck);
+        put(q.x, ry, q.z, rail);
+        railY.set(`${q.x},${q.z}`, ry);
+      }
+    }
+  }
+
   // posts / lanterns along both rails
   const postEvery = Math.max(2, Math.round(p.postEvery ?? 4));
   const lanternEvery = Math.max(postEvery, Math.round(p.lanternEvery ?? postEvery * 2));
@@ -321,3 +344,172 @@ export function slabEdge(p: SlabEdgeParams, reg: Registry, emit: StateSink): Bui
     }
   return { warnings };
 }
+
+export interface VinesParams {
+  box: { min: Vec3; max: Vec3 };
+  /** 0..1 share of wall columns that get vines (default 0.35); clumped by noise */
+  density?: number;
+  /** 'hang' from the top of walls / under eaves (default), 'grow' up from the ground, or 'both' */
+  from?: 'hang' | 'grow' | 'both';
+  /** max strand length (default 6) */
+  length?: number;
+  /** only on exterior faces (default true): cells reachable from outside and open to the sky or the outside */
+  onlyOutside?: boolean;
+  /** 'vine' (default) or 'glow_lichen' / 'sculk_vein' style multiface blocks */
+  block?: string;
+  seed?: number;
+}
+
+/**
+ * Vines on wall faces inside `box`: every placed vine has a full solid face behind it (faces set
+ * automatically) or hangs from the vine above, so the support check keeps them. Exterior
+ * detection = air reachable from the box boundary (through air/plants only) that either sees the
+ * sky or has a sky-lit cell within 3 steps straight away from its wall (under eaves).
+ */
+export function vines(p: VinesParams, reg: Registry, emit: StateSink, get: (x: number, y: number, z: number) => string): BuildReport {
+  const warnings: string[] = [];
+  const b = p.box;
+  const [x0, y0, z0] = [b.min[0] - 1, b.min[1] - 1, b.min[2] - 1];
+  const [x1, y1, z1] = [b.max[0] + 1, b.max[1] + 1, b.max[2] + 1];
+  const sx = x1 - x0 + 1, sy = y1 - y0 + 1, sz = z1 - z0 + 1;
+  if (sx * sy * sz > 4_000_000) throw new Error('vines: box too large (max ~4M cells) — split it');
+  const blockId0 = blockId(reg.canonical(p.block ?? 'vine'));
+  const multiface = reg.info(blockId0)?.properties.north !== undefined;
+  if (!multiface) throw new Error(`vines: block must be a multiface block like vine or glow_lichen, got ${blockId0}`);
+  const isVine = blockId0 === 'minecraft:vine';
+  const density = Math.max(0, Math.min(1, p.density ?? 0.35));
+  const maxLen = Math.max(1, Math.round(p.length ?? 6));
+  const mode = p.from ?? 'hang';
+  const idx = (x: number, y: number, z: number) => ((y - y0) * sz + (z - z0)) * sx + (x - x0);
+  const state = new Array<string>(sx * sy * sz);
+  const open = new Uint8Array(sx * sy * sz); // 1 = air/plant (passable)
+  for (let y = y0; y <= y1; y++)
+    for (let z = z0; z <= z1; z++)
+      for (let x = x0; x <= x1; x++) {
+        const s = get(x, y, z);
+        const i = idx(x, y, z);
+        state[i] = s;
+        const id = blockId(s);
+        open[i] = isAir(s) || (reg.hasTag(id, 'minecraft:replaceable') && !/water|lava|bubble/.test(id)) || reg.hasTag(id, 'minecraft:flowers') && !reg.hasTag(id, 'minecraft:leaves') ? 1 : 0;
+      }
+  // flood fill from the boundary
+  const outside = new Uint8Array(sx * sy * sz);
+  const stack: number[] = [];
+  for (let y = y0; y <= y1; y++)
+    for (let z = z0; z <= z1; z++)
+      for (let x = x0; x <= x1; x++) {
+        if (x !== x0 && x !== x1 && y !== y0 && y !== y1 && z !== z0 && z !== z1) continue;
+        const i = idx(x, y, z);
+        if (open[i] && !outside[i]) {
+          outside[i] = 1;
+          stack.push(i);
+        }
+      }
+  const layer = sx * sz;
+  while (stack.length) {
+    const i = stack.pop()!;
+    const x = i % sx, z = ((i / sx) | 0) % sz, y = (i / layer) | 0;
+    const nb = [x > 0 ? i - 1 : -1, x < sx - 1 ? i + 1 : -1, z > 0 ? i - sx : -1, z < sz - 1 ? i + sx : -1, y > 0 ? i - layer : -1, y < sy - 1 ? i + layer : -1];
+    for (const j of nb) if (j >= 0 && open[j] && !outside[j]) { outside[j] = 1; stack.push(j); }
+  }
+  const DIRS: [HDirName, number, number][] = [['north', 0, -1], ['south', 0, 1], ['east', 1, 0], ['west', -1, 0]];
+  const coveredAbove = new Map<number, boolean>(); // column covered above the box (roofs reaching higher)
+  const sky = (x: number, y: number, z: number) => {
+    for (let yy = y + 1; yy <= y1; yy++) if (!open[idx(x, yy, z)]) return false;
+    const k = (x - x0) * 65536 + (z - z0);
+    let c = coveredAbove.get(k);
+    if (c === undefined) {
+      c = false;
+      for (let yy = y1 + 1; yy <= y1 + 32; yy++) {
+        const st = get(x, yy, z);
+        if (!isAir(st) && !reg.hasTag(blockId(st), 'minecraft:replaceable')) { c = true; break; }
+      }
+      coveredAbove.set(k, c);
+    }
+    return !c;
+  };
+  /** an open cell with sky access within 3 steps straight away from the wall (eaves, porches) */
+  const freeAway = (x: number, y: number, z: number, dx: number, dz: number) => {
+    for (let k = 1; k <= 3; k++) {
+      const xx = x - dx * k, zz = z - dz * k;
+      if (xx < x0 || xx > x1 || zz < z0 || zz > z1) return true;
+      if (!open[idx(xx, y, zz)]) return false;
+      if (sky(xx, y, zz)) return true;
+    }
+    return false;
+  };
+  /** faces of a vine at (x,y,z) with a full wall behind, honouring onlyOutside */
+  const faces = (x: number, y: number, z: number): string[] => {
+    const i = idx(x, y, z);
+    if (!open[i] || !isAir(state[i]!)) return [];
+    if ((p.onlyOutside ?? true) && !outside[i]) return [];
+    // doorways / window gaps (walls on two opposite sides) stay free
+    const solidAt = (dx: number, dz: number) => !open[idx(x + dx, y, z + dz)];
+    if ((solidAt(1, 0) && solidAt(-1, 0)) || (solidAt(0, 1) && solidAt(0, -1))) return [];
+    const out: string[] = [];
+    for (const [d, dx, dz] of DIRS) {
+      const n = state[idx(x + dx, y, z + dz)]!;
+      if (faceSupport(n, OPP[d], reg) < FULL) continue;
+      if ((p.onlyOutside ?? true) && !sky(x, y, z) && !freeAway(x, y, z, dx, dz)) continue;
+      out.push(d);
+    }
+    return out;
+  };
+  // deterministic hash noise for clumped columns
+  let seed = (p.seed ?? 1) >>> 0;
+  const hash = (x: number, z: number, k: number) => {
+    let h = (x * 374761393 + z * 668265263 + k * 2246822519 + seed * 3266489917) | 0;
+    h = Math.imul(h ^ (h >>> 13), 1274126177);
+    return ((h ^ (h >>> 16)) >>> 0) / 4294967296;
+  };
+  const clump = (x: number, z: number) => (hash(Math.floor(x / 3), Math.floor(z / 3), 7) * 0.6 + hash(x, z, 9) * 0.4);
+  const placed = new Set<string>();
+  let strands = 0;
+  const put = (x: number, y: number, z: number, fs: string[]) => {
+    const props = ['east', 'north', 'south', 'west'].map((d) => `${d}=${fs.includes(d)}`).join(',');
+    const st = isVine ? reg.canonical(`vine[${props},up=false]`) : reg.canonical(`${blockId0}[${props},down=false,up=false]`);
+    emit(x, y, z, st);
+    placed.add(`${x},${y},${z}`);
+  };
+  for (let z = b.min[2]; z <= b.max[2]; z++)
+    for (let x = b.min[0]; x <= b.max[0]; x++) {
+      if (clump(x, z) > density) continue;
+      const len = 1 + Math.floor(hash(x, z, 3) * maxLen);
+      if (mode === 'hang' || mode === 'both') {
+        // start right under a non-candidate (wall top, eave) and hang down
+        for (let y = b.max[1]; y >= b.min[1]; y--) {
+          const fs = faces(x, y, z);
+          if (!fs.length || faces(x, y + 1, z).length) continue;
+          let k = 0;
+          for (let yy = y; yy >= b.min[1] && k < len; yy--, k++) {
+            const f2 = k === 0 ? fs : faces(x, yy, z).filter((d) => fs.includes(d));
+            const keep = isVine ? (f2.length ? f2 : fs) : f2;      // vines may hang free under a vine
+            if (!keep.length || !isAir(state[idx(x, yy, z)]!) || (!f2.length && !isVine)) break;
+            if (!f2.length && yy < y - 1 && hash(x, z, 11 + k) < 0.5) break;
+            put(x, yy, z, keep);
+          }
+          strands++;
+          break;
+        }
+      }
+      if (mode === 'grow' || mode === 'both') {
+        for (let y = b.min[1]; y <= b.max[1]; y++) {
+          const fs = faces(x, y, z);
+          if (!fs.length || faces(x, y - 1, z).length) continue;
+          let k = 0;
+          for (let yy = y; yy <= b.max[1] && k < len; yy++, k++) {
+            const f2 = faces(x, yy, z);
+            if (!f2.length) break;
+            if (!placed.has(`${x},${yy},${z}`)) put(x, yy, z, f2);
+          }
+          strands++;
+          break;
+        }
+      }
+    }
+  if (!strands) warnings.push('no exterior wall faces found for vines in this box (needs full blocks with air beside them; onlyOutside:false to include interiors)');
+  return { warnings };
+}
+
+type HDirName = 'north' | 'south' | 'east' | 'west';
+const OPP: Record<HDirName, HDirName> = { north: 'south', south: 'north', east: 'west', west: 'east' };

@@ -25,6 +25,10 @@ export interface JobRequest {
   anchor: Vec3;
   facing: Facing;
   selection?: Box;
+  /** precomputed allowed box (hub: selection + margin + terrain extension); else opts.allowedBox(req) */
+  allowedBox?: Box;
+  /** warnings about the allowed box (e.g. water below it excluded) — shown in get_context */
+  boxNotes?: string[];
   dimension?: Dimension;
   /** allowed area when there is no selection (local x width, y height, z depth) */
   size?: JobSize;
@@ -275,7 +279,7 @@ export class JobManager extends EventEmitter {
     if (req.prompt.length > 4000) throw new JobError('prompt too long (max 4000 characters)');
     const busy = this.activeFor(req.player.name);
     if (busy) throw new JobError(`${req.player.name} already has an active job (${busy.id}, ${busy.state}). Cancel it first.`);
-    const job = new Job(newJobId(), req, this.opts.allowedBox(req));
+    const job = new Job(newJobId(), req, req.allowedBox ?? this.opts.allowedBox(req));
     this.jobs.set(job.id, job);
     job.log('submitted', { request: req, allowedBox: job.allowedBox });
     this.queue.push(job);

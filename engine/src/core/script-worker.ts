@@ -142,7 +142,7 @@ export function formatScriptError(e: unknown, code: string, timeoutMs: number): 
   }
   if (name === 'ReferenceError') {
     out +=
-      '\n  hint: available globals are set, setSoft, get, groundY, protect, unprotect, define, call, fill, box, sphere, ellipsoid, cylinder, cone, pyramid, torus, line, curve, polygon, arch, spiral, roof, positions, pattern, block, isAir, noise2, noise3, fbm, fbm2, fbm3, rand, randInt, chance, choice, shuffle, vec, log, info, Math';
+      '\n  hint: available globals are set, setSoft, get, groundY, topY, isWater, protect, unprotect, define, call, fill, box, sphere, ellipsoid, cylinder, cone, pyramid, torus, line, curve, polygon, arch, spiral, roof, positions, pattern, block, isAir, noise2, noise3, fbm, fbm2, fbm3, rand, randInt, chance, choice, shuffle, vec, log, info, Math';
   }
   return out;
 }
@@ -162,7 +162,7 @@ const PRELUDE = String.raw`'use strict';
     return r;
   };
   const HH = {};
-  for (const k of ['set', 'setP', 'get', 'shape', 'shapePos', 'roof', 'patCompile', 'pat', 'noise2', 'noise3', 'fbm2', 'fbm3', 'log', 'soft', 'ground', 'protect', 'unprotect', 'define', 'genSource', 'genNames']) HH[k] = wrapHost(H[k]);
+  for (const k of ['set', 'setP', 'get', 'shape', 'shapePos', 'roof', 'patCompile', 'pat', 'noise2', 'noise3', 'fbm2', 'fbm3', 'log', 'soft', 'ground', 'top', 'protect', 'unprotect', 'define', 'genSource', 'genNames']) HH[k] = wrapHost(H[k]);
   H = HH;
   const chk = (r) => {
     if (typeof r === 'string' && r.length >= 3 && r.charCodeAt(0) === 0 && r.startsWith(ERR)) throw new Error(r.slice(3));
@@ -280,6 +280,15 @@ const PRELUDE = String.raw`'use strict';
   });
   // ---- terrain-aware helpers
   function groundY(x, z) { return chk(H.ground(num(x), num(z))); }
+  function topY(x, z, opts) {
+    const o = opts || {};
+    const r = chk(H.top(num(x), num(z), o.includeOwn === false ? 0 : 1, o.solid ? 1 : 0));
+    return r === -2147483648 ? null : r;
+  }
+  function isWater(x, y, z) {
+    const s = get(x, y, z);
+    return /^minecraft:(water|bubble_column|seagrass|tall_seagrass|kelp|kelp_plant)(\[|$)/.test(s) || s.indexOf('waterlogged=true') >= 0;
+  }
   function setSoft(x, y, z, block) {
     if (isFn(block)) block = block(x, y, z);
     if (block === null || block === undefined) return false;
@@ -305,8 +314,10 @@ const PRELUDE = String.raw`'use strict';
     if (typeof code === 'function') src = 'return (' + Function.prototype.toString.call(code) + ')(params);';
     else if (typeof code === 'string') src = code;
     else throw new TypeError('define(name, code): code must be a function(params) { ... } or a string (function body that uses params)');
-    GEN[name] = compileGen(name, src);
-    chk(H.define(name, src));
+    // in this script the closure itself runs (it sees all helpers); later scripts get the source with
+    // the defining script's top-level helper declarations prepended (host side)
+    GEN[name] = typeof code === 'function' ? code : compileGen(name, chk(H.define(name, src)));
+    if (typeof code === 'function') chk(H.define(name, src));
     return name;
   }
   function call(name, params) {
@@ -321,7 +332,7 @@ const PRELUDE = String.raw`'use strict';
     catch (e) { if (e && typeof e === 'object' && typeof e.message === 'string' && e.message.indexOf('in generator "') < 0) e.message = e.message + ' (in generator "' + name + '")'; throw e; }
   }
   const info = Object.freeze(JSON.parse(INFO_JSON));
-  const api = { set, setSoft, get, groundY, protect, unprotect, define, call, fill, positions, roof, pattern, block, isAir, noise2, noise3, fbm: fbm2, fbm2, fbm3, rand, randInt, chance, choice, shuffle, vec, log, info, SEED };
+  const api = { set, setSoft, get, groundY, topY, isWater, protect, unprotect, define, call, fill, positions, roof, pattern, block, isAir, noise2, noise3, fbm: fbm2, fbm2, fbm3, rand, randInt, chance, choice, shuffle, vec, log, info, SEED };
   for (const k of Object.keys(api)) g[k] = api[k];
   g.console = Object.freeze({ log, info: log, warn: log, error: log, debug: log });
   // memory hardening: off-heap buffers could bypass --max-old-space-size
@@ -416,6 +427,79 @@ function boxArg(b: unknown, fname: string): Box {
   throw new Error(`${fname}(): box must be {min:[x,y,z], max:[x,y,z]}, [[x,y,z],[x,y,z]] or {from,to}, got ${show(b)}`);
 }
 
+// --------------------------------------------------------------------- generator helpers
+
+const MUTATORS = /\b(set|setSoft|fill|box|cuboid|sphere|ellipsoid|cylinder|cone|pyramid|torus|line|curve|polygon|arch|spiral|roof|call|define|protect|unprotect|log)\s*\(/;
+
+/**
+ * Top-level helper declarations of a script (function/class declarations and const/let/var
+ * declarations without world side effects), so a define()'d generator still sees them when it
+ * is called from a later script. A small tokenizer splits statements at depth 0 (strings,
+ * template literals, comments and regex literals are skipped).
+ */
+export function topLevelHelpers(code: string): string {
+  const stmts: string[] = [];
+  let depth = 0, start = 0, i = 0;
+  const n = code.length;
+  let lastSig = '';
+  const startsDecl = (s: string) => /^(async\s+function|function|class)\b/.test(s.trimStart());
+  const push = (end: number) => {
+    const t = code.slice(start, end).trim();
+    if (t) stmts.push(t);
+    start = end;
+  };
+  while (i < n) {
+    const c = code[i]!;
+    const c2 = code[i + 1];
+    if (c === '/' && c2 === '/') { while (i < n && code[i] !== '\n') i++; continue; }
+    if (c === '/' && c2 === '*') { const e = code.indexOf('*/', i + 2); i = e < 0 ? n : e + 2; continue; }
+    if (c === '"' || c === "'") { i++; while (i < n && code[i] !== c) { if (code[i] === '\\') i++; i++; } i++; lastSig = 'x'; continue; }
+    if (c === '`') {
+      i++;
+      let d = 0;
+      while (i < n) {
+        if (code[i] === '\\') { i += 2; continue; }
+        if (d === 0 && code[i] === '`') break;
+        if (code[i] === '$' && code[i + 1] === '{') { d++; i += 2; continue; }
+        if (d > 0 && code[i] === '}') d--;
+        i++;
+      }
+      i++;
+      lastSig = 'x';
+      continue;
+    }
+    if (c === '/' && /^$|[(,=:[!&|?{};+\-*%<>~^]$/.test(lastSig)) {
+      // regex literal
+      i++;
+      let cls = false;
+      while (i < n && (code[i] !== '/' || cls)) { if (code[i] === '\\') i++; else if (code[i] === '[') cls = true; else if (code[i] === ']') cls = false; i++; }
+      i++;
+      while (i < n && /[a-z]/i.test(code[i]!)) i++;
+      lastSig = 'x';
+      continue;
+    }
+    if (c === '(' || c === '[' || c === '{') depth++;
+    else if (c === ')' || c === ']' || c === '}') {
+      depth--;
+      if (depth === 0 && c === '}' && startsDecl(code.slice(start, i))) { push(i + 1); i++; lastSig = ';'; continue; }
+    } else if (c === ';' && depth === 0) { push(i + 1); i++; lastSig = ';'; continue; }
+    else if (c === '\n' && depth === 0) {
+      const rest = code.slice(i + 1).trimStart();
+      const prev = code.slice(start, i).trimEnd();
+      if (prev && /^(const|let|var|function|async|class|for|if|while|do|return|[A-Za-z_$][\w$]*\s*\()/.test(rest) && !/[=+\-*/%&|?:,(\[{.]$/.test(prev)) push(i + 1);
+    }
+    if (!/\s/.test(c)) lastSig = c;
+    i++;
+  }
+  push(n);
+  const keep = stmts.filter((t) => {
+    if (/^(async\s+function|function|class)\b/.test(t)) return true;
+    if (/^(const|let|var)\b/.test(t)) return !MUTATORS.test(t);
+    return false;
+  });
+  return keep.map((t) => (t.endsWith(';') || t.endsWith('}') ? t : t + ';')).join('\n');
+}
+
 // --------------------------------------------------------------------- main
 
 async function main(): Promise<void> {
@@ -455,6 +539,7 @@ async function main(): Promise<void> {
   };
 
   const protects: Box[] = [];
+  let helperSource: string | undefined;
   let protectedSkips = 0;
   const defines: Record<string, string> = {};
 
@@ -629,10 +714,19 @@ async function main(): Promise<void> {
       if (!g) throw new Error('groundY(): no ground map for this script (internal)');
       if (!fin(x) || !fin(z)) throw new Error(`groundY(x, z): x and z must be finite numbers, got (${x}, ${z})`);
       const w = frame ? frame.toWorld([Math.round(x), 0, Math.round(z)]) : [Math.round(x), 0, Math.round(z)];
-      const ix = w[0]! - g.x0, iz = w[2]! - g.z0;
-      if (ix < 0 || iz < 0 || ix >= g.w || iz >= g.d) throw new Error(`groundY(${x}, ${z}): outside the ground map (the readBox footprint)`);
-      const v = g.data[iz * g.w + ix]!;
-      if (v === -32768) throw new Error(`groundY(${x}, ${z}): no natural ground found in this column`);
+      // outside the map (far beyond the job area): use the nearest edge column
+      const ix = Math.max(0, Math.min(g.w - 1, w[0]! - g.x0)), iz = Math.max(0, Math.min(g.d - 1, w[2]! - g.z0));
+      let v = g.data[iz * g.w + ix]!;
+      // column without natural ground (deep water, void): nearest column that has some
+      for (let r = 1; v === -32768 && r <= 8; r++)
+        for (let dz = -r; dz <= r && v === -32768; dz++)
+          for (let dx = -r; dx <= r; dx++) {
+            const jx = ix + dx, jz = iz + dz;
+            if (jx < 0 || jz < 0 || jx >= g.w || jz >= g.d) continue;
+            const u = g.data[jz * g.w + jx]!;
+            if (u !== -32768) { v = u; break; }
+          }
+      if (v === -32768) throw new Error(`groundY(${x}, ${z}): no natural ground found near this column`);
       return frame ? v - req.frame!.anchor[1] : v;
     }),
     protect: wrap((json: string): number => {
@@ -645,8 +739,30 @@ async function main(): Promise<void> {
     }),
     define: wrap((name: string, src: string): string => {
       if (typeof src !== 'string' || src.length > 128 * 1024) throw new Error('define(): generator code too long (max 128k chars)');
-      defines[name] = src;
-      return name;
+      const helpers = helperSource ??= topLevelHelpers(req.code);
+      const full = helpers ? `${helpers}\n// ---- generator body\n${src}` : src;
+      defines[name] = full;
+      return full;
+    }),
+    top: wrap((x: number, z: number, own: number, solid: number): number => {
+      const yTop = patternBounds ? patternBounds.max[1] : vol ? vol.box.max[1] : 320;
+      const yBot = patternBounds ? patternBounds.min[1] : vol ? vol.box.min[1] : -64;
+      for (let y = yTop; y >= yBot; y--) {
+        let st: string;
+        if (own) st = getLocal(x, y, z, 'topY');
+        else {
+          let p: Vec3 = [Math.round(x), y, Math.round(z)];
+          if (frame) p = frame.toWorld(p);
+          st = vol && boxContains(vol.box, p[0], p[1], p[2]) ? (vol.palette[vol.data[volIndex(vol.box, p[0], p[1], p[2])]] ?? AIR) : AIR;
+        }
+        if (/^minecraft:(cave_|void_)?air$/.test(st.replace(/[[{].*$/, ''))) continue;
+        if (solid) {
+          const id = st.replace(/[[{].*$/, '');
+          if (reg.hasTag(id, 'minecraft:replaceable') || reg.hasTag(id, 'minecraft:leaves') || reg.hasTag(id, 'minecraft:flowers') || reg.hasTag(id, 'minecraft:small_flowers')) continue;
+        }
+        return y;
+      }
+      return -2147483648;
     }),
     genSource: wrap((name: string): string => {
       if (defines[name] !== undefined) return defines[name]!;

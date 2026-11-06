@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { z } from 'zod';
 import { paths } from '../config.ts';
-import { SpaceIn, ToolError, defineTool, frameOf, type ToolCtx, type ToolDef } from './common.ts';
+import { SpaceIn, ToolError, defineTool, frameOf, worldOf, type ToolCtx, type ToolDef } from './common.ts';
 import type { Vec3 } from '../../core/types.ts';
 import { blockId, isAir } from '../../core/blockstate.ts';
 import { boxContains, volIndex } from '../../core/volume.ts';
@@ -41,6 +41,7 @@ export const undoTool = defineTool({
         break;
       }
       const rec = await env.history.undo(job.player, env.backend());
+      worldOf(ctx).invalidate();
       if (!rec) break;
       job.undoIds = job.undoIds.filter((id) => id !== rec.id);
       env.onWorldChange?.(rec.before, rec.dimension);
@@ -221,7 +222,7 @@ export async function summonCheck(ctx: ToolCtx, cmd: string): Promise<string | n
   const R = 4;
   const box = { min: [bx - R, by - R - 1, bz - R] as Vec3, max: [bx + R, by + R + h, bz + R] as Vec3 };
   const reg = ctx.env.registry();
-  const vol = await ctx.env.backend().getBlocks(box, ctx.job.dimension);
+  const vol = await worldOf(ctx).getBlocks(box, ctx.job.dimension);
   const solidPal = vol.palette.map((st) => {
     if (isAir(st)) return false;
     const id = blockId(st);

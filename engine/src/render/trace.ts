@@ -36,6 +36,8 @@ export interface RenderParams {
   clipAxis?: number;
   clipSign?: number;
   clipAt?: number;
+  /** cut natural cells outside the allowed box on the camera side: [x0,z0,x1,z1] (grid coords, inclusive) + camera dir [dx,dz] */
+  cutOut?: number[];
   /** optional sub-rectangle of the framebuffer to trace (all rows otherwise) */
 }
 
@@ -50,18 +52,34 @@ export function createTracer(S: SceneData, R: RenderParams) {
   const pGlass = S.pGlass, pTerrain = S.pTerrain;
   const SECTION = R.section !== false;
   const clipAxis = R.clipAxis ?? -1, clipSign = R.clipSign ?? 1, clipAt = R.clipAt ?? 0;
-  /** cell removed by the elevation cutaway */
-  const clipped = (p: number, x: number, z: number): boolean => {
-    if (clipAxis < 0 || pTerrain[p] === 0) return false;
-    const c = clipAxis === 0 ? x : z;
-    return clipSign > 0 ? c > clipAt : c < clipAt;
+  const cutOut = R.cutOut && R.cutOut.length >= 6 ? R.cutOut : null;
+  const anyClip = clipAxis >= 0 || cutOut !== null;
+  // per-cell "removable natural" mask (terrain, plants, water, natural trees — never the job's own blocks);
+  // without it the per-palette terrain class decides
+  const cut = S.cut && S.cut.length === sx * sy * sz ? S.cut : null;
+  const removable = (i: number, p: number): boolean => (cut ? cut[i] !== 0 : pTerrain[p] !== 0);
+  /** cell i (palette p) removed by the elevation cutaway or the outside cut */
+  const clipped = (i: number, p: number, x: number, z: number): boolean => {
+    if (!anyClip || !removable(i, p)) return false;
+    if (clipAxis >= 0) {
+      const c = clipAxis === 0 ? x : z;
+      if (clipSign > 0 ? c > clipAt : c < clipAt) return true;
+    }
+    if (cutOut) {
+      const cdx = cutOut[4], cdz = cutOut[5];
+      if ((cdx > 0 && x > cutOut[2]) || (cdx < 0 && x < cutOut[0]) || (cdz > 0 && z > cutOut[3]) || (cdz < 0 && z < cutOut[1])) return true;
+    }
+    return false;
   };
+  /** terrain cell that may show a section face */
+  const sectionable = (i: number, p: number): boolean => pTerrain[p] === 1 && (!cut || cut[i] !== 0);
   /** neighbour of (x,y,z) across world face d is outside the volume or cut away → (x,y,z) shows a section face */
   const cutFace = (x: number, y: number, z: number, d: number): boolean => {
     const nx = x + NX[d], ny = y + NY[d], nz = z + NZ[d];
     if (d === 0) return false;
     if (nx < 0 || ny < 0 || nz < 0 || nx >= sx || ny >= sy || nz >= sz) return true;
-    return clipAxis >= 0 && clipped(grid[(ny * sz + nz) * sx + nx], nx, nz);
+    const j = (ny * sz + nz) * sx + nx;
+    return anyClip && clipped(j, grid[j], nx, nz);
   };
   const layer = sx * sz;
   const { brick, bsx, bsz } = S;
@@ -240,7 +258,8 @@ export function createTracer(S: SceneData, R: RenderParams) {
     if (rx > 1e-12 || rx < -1e-12) {
       const inv = 1 / rx;
       let a = (x0 - qx) * inv, b = (x1 - qx) * inv, fa = 4;
-      if (a > b) { const t = a; a = b; b = t; fa = 5; }
+      // zero-thickness planes (lily pads, vines): the face toward the ray origin is the one hit
+      if (a > b || (a === b && inv < 0)) { const t = a; a = b; b = t; fa = 5; }
       if (a > tn || (a === tn && x1 - x0 < 1e-6)) { tn = a; face = fa; }
       if (b < tf) tf = b;
     } else if (qx < x0 - 1e-9 || qx > x1 + 1e-9) return false;
@@ -248,7 +267,7 @@ export function createTracer(S: SceneData, R: RenderParams) {
     if (ry > 1e-12 || ry < -1e-12) {
       const inv = 1 / ry;
       let a = (y0 - qy) * inv, b = (y1 - qy) * inv, fa = 0;
-      if (a > b) { const t = a; a = b; b = t; fa = 1; }
+      if (a > b || (a === b && inv < 0)) { const t = a; a = b; b = t; fa = 1; }
       if (a > tn || (a === tn && y1 - y0 < 1e-6)) { tn = a; face = fa; }
       if (b < tf) tf = b;
     } else if (qy < y0 - 1e-9 || qy > y1 + 1e-9) return false;
@@ -256,7 +275,7 @@ export function createTracer(S: SceneData, R: RenderParams) {
     if (rz > 1e-12 || rz < -1e-12) {
       const inv = 1 / rz;
       let a = (z0 - qz) * inv, b = (z1 - qz) * inv, fa = 2;
-      if (a > b) { const t = a; a = b; b = t; fa = 3; }
+      if (a > b || (a === b && inv < 0)) { const t = a; a = b; b = t; fa = 3; }
       if (a > tn || (a === tn && z1 - z0 < 1e-6)) { tn = a; face = fa; }
       if (b < tf) tf = b;
     } else if (qz < z0 - 1e-9 || qz > z1 + 1e-9) return false;
@@ -359,8 +378,9 @@ export function createTracer(S: SceneData, R: RenderParams) {
         tmZ = dz !== 0 ? ((dz > 0 ? z + 1 : z) - pz) / dz : 1e30;
         continue;
       }
-      const p = grid[(y * sz + z) * sx + x];
-      const k = clipAxis >= 0 && clipped(p, x, z) ? K_EMPTY : pKind[p];
+      const ci = (y * sz + z) * sx + x;
+      const p = grid[ci];
+      const k = anyClip && clipped(ci, p, x, z) ? K_EMPTY : pKind[p];
       if (k !== K_EMPTY) {
         const fl = pFlags[p];
         if (fl & F_OCC) return 0;
@@ -464,7 +484,7 @@ export function createTracer(S: SceneData, R: RenderParams) {
       for (let guard = 0; guard < 8192; guard++) {
         const idx = (y * sz + z) * sx + x;
         const p0 = grid[idx];
-        const p = clipAxis >= 0 && clipped(p0, x, z) ? 0 : p0;
+        const p = anyClip && clipped(idx, p0, x, z) ? 0 : p0;
         const k = pKind[p];
         if (k === K_EMPTY && !inWater && brick[((y >> 2) * bsz + (z >> 2)) * bsx + (x >> 2)] === 0) {
           // empty 4³ brick: jump to its exit
@@ -577,7 +597,7 @@ export function createTracer(S: SceneData, R: RenderParams) {
               const hx = px + dx * t, hy = py + dy * t, hz = pz + dz * t;
               const wlx = hx - x, wly = hy - y, wlz = hz - z;
               let hit = false;
-              const section = SECTION && pTerrain[p] === 1 && (fl & F_OCC) !== 0 && cutFace(x, y, z, entryFace);
+              const section = SECTION && sectionable(idx, p) && (fl & F_OCC) !== 0 && cutFace(x, y, z, entryFace);
               for (let e = ne - 1; e >= 0 && !section; e--) {
                 const eo = (e0 + e) * ES;
                 const d = elemDir(eo, entryFace);
@@ -631,7 +651,7 @@ export function createTracer(S: SceneData, R: RenderParams) {
                 break;
               }
             }
-          } else if (SECTION && pTerrain[p] === 1 && entryFace >= 0 && cutFace(x, y, z, entryFace)) {
+          } else if (SECTION && entryFace >= 0 && sectionable(idx, p) && cutFace(x, y, z, entryFace)) {
             // non-cube terrain (dirt path, farmland, …) cut by the boundary: section face
             if (firstT < 0) firstT = t;
             sectionColor(p, x, y, z, px + dx * t, py + dy * t, pz + dz * t, entryFace);
@@ -818,8 +838,9 @@ export function createTracer(S: SceneData, R: RenderParams) {
     g = (0.35 * g + 0.65 * l) * 0.75 + 0.28 * 0.25;
     b = (0.35 * b + 0.65 * l) * 0.75 + 0.25 * 0.25;
     // ground line: bold edge where the section meets the open surface above
-    const above = y + 1 < sy ? grid[((y + 1) * sz + z) * sx + x] : 0;
-    const openAbove = pTerrain[above] !== 1 || (clipAxis >= 0 && clipped(above, x, z));
+    const ai = ((y + 1) * sz + z) * sx + x;
+    const above = y + 1 < sy ? grid[ai] : 0;
+    const openAbove = pTerrain[above] !== 1 || (y + 1 < sy && anyClip && clipped(ai, above, x, z));
     const fy = hy - Math.floor(hy);
     let k2 = 1;
     if (openAbove && fy > 0.84) k2 = 0.38;

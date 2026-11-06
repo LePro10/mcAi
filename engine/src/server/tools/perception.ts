@@ -6,8 +6,9 @@ import { boxIntersect, boxVolume, volGet } from '../../core/volume.ts';
 import { blockId, isAir } from '../../core/blockstate.ts';
 import { summarize, surfaceMap, findDarkSpots, classifyDarkSpots } from '../../core/analysis.ts';
 import { findFloating } from '../../core/trees.ts';
+import { cropBelow, undergroundCropY } from '../../render/crop.ts';
 import { renderVolume, type RenderOptions } from '../../render/render.ts';
-import { builtMask, expandToComponents } from '../../render/expand.ts';
+import { builtMask, expandToComponents, keepMask } from '../../render/expand.ts';
 import { analyzeColumns, terrainStats } from '../terrain.ts';
 import {
   BoxIn,
@@ -20,6 +21,7 @@ import {
   jobEditBounds,
   normBoxIn,
   readSpaceVolume,
+  worldOf,
   short,
   toLocalBox,
   toWorldBox,
@@ -63,7 +65,7 @@ export const getContext = defineTool({
   readOnly: true,
   description:
     'Call this FIRST. Returns the build request, the player (name, position, facing), the anchor and coordinate frame, ' +
-    'the allowed build box (edits outside are rejected), world info, biome, a terrain summary of the site ' +
+    'the player\'s selection (primary build area, if any) and the allowed build box (selection + margin; edits outside are rejected), world info, biome, a terrain summary of the site ' +
     '(ground height min/max/avg relative to the anchor, water/vegetation %, surface blocks, coarse local height grid), ' +
     'block limits, budget and a suggested building origin. ' +
     "LOCAL SPACE (default for all tools): origin = anchor, +x = player's right, +y = up, -z = forward into the site, +z = toward the player; " +
@@ -71,7 +73,7 @@ export const getContext = defineTool({
   input: z.object({}),
   async run(_args, ctx) {
     const { job, env } = ctx;
-    const be = env.backend();
+    const be = worldOf(ctx);
     const reg = env.registry();
     const info = await be.info();
     const f = frameOf(ctx);
@@ -126,7 +128,16 @@ export const getContext = defineTool({
         facing: job.req.facing,
         localAxes: `local -z (forward) = world ${job.req.facing}; local +x (right) = world ${['east', 'south', 'west', 'north'][f.turns]}`,
       },
-      allowedBox: { world: fmtBox(ab), local: fmtBox(lb), fromSelection: !!job.req.selection },
+      ...(job.req.selection
+        ? {
+            selection: {
+              world: fmtBox(job.req.selection),
+              local: fmtBox(toLocalBox(ctx, job.req.selection)),
+              note: "the player's selection = the PRIMARY build area: keep the main structure inside it; use the rest of the allowed box only for supports, foundations, terrain blending, paths and trees",
+            },
+          }
+        : {}),
+      allowedBox: { world: fmtBox(ab), local: fmtBox(lb), ...(job.req.boxNotes?.length ? { notes: job.req.boxNotes } : {}) },
       world: { kind: be.kind, name: info.name, mc: info.mcVersion, registry: reg.version, dimension: job.dimension, minY: info.minY, maxY: info.maxY, seaLevel: info.seaLevel },
       site: {
         biome,
@@ -232,7 +243,18 @@ export const scanRegion = defineTool({
     maxChars: z.number().int().min(500).max(40000).default(12000),
   }),
   async run(a, ctx) {
-    const box = normBoxIn(a.box);
+    let box = normBoxIn(a.box);
+    // never read far outside the job area (huge reads stall the real game): allowed box ± 16
+    const ab = ctx.job.allowedBox;
+    const lim: Box = { min: [ab.min[0] - 16, ab.min[1] - 16, ab.min[2] - 16], max: [ab.max[0] + 16, ab.max[1] + 16, ab.max[2] + 16] };
+    const wb = toWorldBox(ctx, box, a.space);
+    const wi = boxIntersect(wb, lim);
+    if (!wi) throw new ToolError(`box is far outside the job area; scan_region reads at most 16 blocks around the allowed box (world ${fmtBox(ab)})`);
+    let clampNote = '';
+    if (wi.min.some((v, i) => v !== wb.min[i]) || wi.max.some((v, i) => v !== wb.max[i])) {
+      box = a.space === 'local' ? toLocalBox(ctx, wi) : wi;
+      clampNote = ` (clamped to the allowed box ± 16)`;
+    }
     const n = boxVolume(box);
     if (n > MAX_SCAN_VOLUME) throw new ToolError(`box has ${n.toLocaleString('en')} blocks; scan_region reads at most ${MAX_SCAN_VOLUME.toLocaleString('en')}. Use heightmap for large areas or a smaller box.`);
     const sx = box.max[0] - box.min[0] + 1, sz = box.max[2] - box.min[2] + 1;
@@ -241,7 +263,7 @@ export const scanRegion = defineTool({
     }
     const reg = ctx.env.registry();
     const { vol } = await readSpaceVolume(ctx, box, a.space);
-    const head = `${a.space} box ${fmtBox(box)}`;
+    const head = `${a.space} box ${fmtBox(box)}${clampNote}`;
     switch (a.mode) {
       case 'summary': {
         const s = summarize(vol, reg);
@@ -401,6 +423,13 @@ export function renderExpansion(ctx: ToolCtx, wbox: Box, maxExtra = 24): Box | n
   return expandToComponents(wbox, built, { maxExtra, limit });
 }
 
+/** this job's own placed blocks (never cut away by elevation cutaways / cutOutside) */
+function jobKeep(ctx: ToolCtx): ReturnType<typeof keepMask> | undefined {
+  const ids = new Set(ctx.job.undoIds);
+  const recs = ctx.env.history.list(ctx.job.player).filter((r) => ids.has(r.id));
+  return recs.length ? keepMask(recs.map((r) => r.after)) : undefined;
+}
+
 const ViewIn = z.enum(['iso_ne', 'iso_nw', 'iso_se', 'iso_sw', 'front', 'back', 'left', 'right', 'top']);
 
 export const renderView = defineTool({
@@ -412,7 +441,7 @@ export const renderView = defineTool({
     "Views: iso_se/iso_sw/iso_ne/iso_nw (isometric from that corner), front/back/left/right (elevations), top (plan). " +
     "With space:'local' (default) views are relative to the build: 'front' looks at the +z facade (what the player sees), 'iso_se' = front-right corner. " +
     'Pass up to 4 views for a contact sheet (one image each). Default box = everything you built so far in this job (+ margin), else the allowed box. ' +
-    'Terrain cut by the render box is drawn as a flat grey section (not part of the world); elevations cut away natural terrain in front of the box. ' +
+    'Terrain cut by the render box is drawn as a flat grey section (not part of the world); elevations cut away natural terrain/trees in front of the box (never your own blocks). ' +
     'Use it after each major step to check proportions, gaps and style; ~1k tokens per 800x600 image.',
   input: z.object({
     box: BoxIn.optional().describe('region to render (default: your edits so far)'),
@@ -425,6 +454,7 @@ export const renderView = defineTool({
     highlight: BoxIn.optional().describe('box to outline in the image (same space)'),
     margin: z.number().int().min(0).max(32).default(4).describe('extra blocks of surroundings around the box'),
     expand: z.boolean().default(true).describe('also load whole parts of your build that the box cuts through (sideways/down, ≤24 blocks; camera still frames box)'),
+    cutOutside: z.boolean().default(false).describe('hide natural terrain/trees outside the allowed box on the camera side (clear view through a forest)'),
   }),
   async run(a, ctx) {
     const { job, env } = ctx;
@@ -439,7 +469,7 @@ export const renderView = defineTool({
       wbox = eb ? (boxIntersect(eb, job.allowedBox) ?? eb) : job.allowedBox;
     }
     const m = a.margin;
-    const info = await env.backend().info();
+    const info = await worldOf(ctx).info();
     let rbox: Box = { min: [wbox.min[0] - m, Math.max(info.minY, wbox.min[1] - Math.max(2, Math.floor(m / 2))), wbox.min[2] - m], max: [wbox.max[0] + m, Math.min(info.maxY, wbox.max[1] + 2), wbox.max[2] + m] };
     if (grown) {
       const big: Box = { min: [Math.min(rbox.min[0], grown.min[0] - 1), Math.max(info.minY, Math.min(rbox.min[1], grown.min[1] - 1)), Math.min(rbox.min[2], grown.min[2] - 1)], max: [Math.max(rbox.max[0], grown.max[0] + 1), rbox.max[1], Math.max(rbox.max[2], grown.max[2] + 1)] };
@@ -447,9 +477,19 @@ export const renderView = defineTool({
       else grown = null;
     }
     if (boxVolume(rbox) > MAX_RENDER_VOLUME) throw new ToolError(`render box ${fmtBox(rbox)} is too large (max ${MAX_RENDER_VOLUME.toLocaleString('en')} blocks). Pass a smaller box.`);
-    const vol = await env.backend().getBlocks(rbox, job.dimension);
+    let vol = await worldOf(ctx).getBlocks(rbox, job.dimension);
+    // an explicit box reaching deep underground would render as a stone cross-section: crop it
+    if (a.box) {
+      const eb = jobEditBounds(ctx);
+      const cy = undergroundCropY(vol, { keep: 3, lowestEdit: eb && boxIntersect(eb, rbox) ? Math.max(rbox.min[1], eb.min[1]) : undefined });
+      if (cy > vol.box.min[1]) {
+        vol = cropBelow(vol, cy);
+        if (wbox.min[1] < cy) wbox = { min: [wbox.min[0], Math.min(cy, wbox.max[1]), wbox.min[2]], max: wbox.max };
+      }
+    }
     const assets = await env.assets();
     const turns = a.space === 'local' ? frameOf(ctx).turns : 0;
+    const keep = jobKeep(ctx);
     const images: { data: string; mimeType: string }[] = [];
     for (const view of a.views) {
       const opts: RenderOptions = {
@@ -459,6 +499,8 @@ export const renderView = defineTool({
         time: a.time,
         focus: wbox,
         shadows: true,
+        ...(keep ? { keep } : {}),
+        ...(a.cutOutside ? { cutOutside: job.allowedBox } : {}),
         ...(a.zoom ? { zoom: a.zoom } : {}),
         ...(a.highlight ? { highlight: toWorldBox(ctx, normBoxIn(a.highlight), a.space) } : {}),
       };
@@ -487,16 +529,22 @@ export const findBlocks = defineTool({
   async run(a, ctx) {
     const reg = ctx.env.registry();
     const ids = reg.search(a.query, { tag: a.tag, limit: a.limit });
-    if (!ids.length) return `no blocks match "${a.query}"${a.tag ? ` with tag ${a.tag}` : ''}. Try fewer/other words.`;
+    const itemHint = ITEM_WORDS.test(a.query)
+      ? `\n"${a.query}" sounds like an ITEM, not a block: show items with the command tool — summon item_frame/glow_item_frame x y z {Facing:2b,Item:{id:"minecraft:${a.query.trim().replace(/\s+/g, '_')}",count:1}} on a wall, an armor_stand with equipment, or an item_display (see knowledge/block-states.md, Entities).`
+      : '';
+    if (!ids.length) return `no blocks match "${a.query}"${a.tag ? ` with tag ${a.tag}` : ''}. Try fewer/other words.${itemHint || ' If it is an item (tool, weapon, food, map…), display it in an item_frame / armor_stand / item_display via the command tool.'}`;
     return ids
       .map((id) => {
         const info = reg.info(id);
         const props = info ? Object.keys(info.properties) : [];
         return `${short(id)}${props.length ? ` [${props.join(',')}]` : ''}`;
       })
-      .join('\n');
+      .join('\n') + itemHint;
   },
 });
+
+/** common decorative items that are not blocks (displayed via item frames / armor stands / item displays) */
+const ITEM_WORDS = /\b(spyglass|sword|axe|pickaxe|shovel|hoe|bow|crossbow|trident|mace|shield|helmet|chestplate|leggings|boots|elytra|map|compass|clock|book|written_book|writable_book|quill|feather|bottle|potion|bucket|fishing_rod|fish|cod|salmon|bread|apple|carrot_item|cookie|pie|steak|bone|arrow|firework|totem|goat_horn|horn|music_disc|disc|saddle|lead|name_tag|emerald|diamond|ingot|nugget|gem|coin|key|scroll|paper|banner_pattern|bundle|brush|egg|shears|flint_and_steel|torchflower_seeds|seeds|wheat_item|stick)\b/i;
 
 export const blockInfo = defineTool({
   name: 'block_info',
@@ -543,7 +591,7 @@ export const heightmapTool = defineTool({
   }),
   async run(a, ctx) {
     const { job, env } = ctx;
-    const be = env.backend();
+    const be = worldOf(ctx);
     const reg = env.registry();
     const lbox = normBoxIn(a.box);
     const wbox = toWorldBox(ctx, { min: [lbox.min[0], 0, lbox.min[2]], max: [lbox.max[0], 0, lbox.max[2]] }, a.space);

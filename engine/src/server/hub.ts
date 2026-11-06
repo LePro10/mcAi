@@ -60,7 +60,8 @@ const TALL_PROMPT = /\b(tower|castle|cathedral|spire|lighthouse|skyscraper|tall|
 
 /**
  * Effective allowed box for a job. Selection → selection + `selectionMargin` on every side (the
- * selection stays the primary build area). Both selection and default boxes are extended down to
+ * selection stays the primary build area). An explicit `size` is used exactly. Selection and default
+ * (config size) boxes are extended down to
  * the lowest ground / water bed in the footprint (−2, at most 32 below the floor) and up to at
  * least `minBuildHeight` (+16 for tall prompts) above the floor. Returns notes for get_context.
  */
@@ -81,6 +82,8 @@ export async function resolveAllowedBox(
   } else {
     box = defaultAllowedBox(req.anchor, req.facing, req.size ?? cfg.defaultSize, cfg.depthBelow, world);
     floorY = req.anchor[1];
+    // an explicitly requested size (CLI/viewer/API) is used exactly as given
+    if (req.size) return { box, notes };
   }
   const area = (box.max[0] - box.min[0] + 1) * (box.max[2] - box.min[2] + 1);
   if (area <= 256 * 256) {

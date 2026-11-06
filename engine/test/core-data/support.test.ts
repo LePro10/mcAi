@@ -144,7 +144,7 @@ test('removing a wall drops the torch that hung on it; undo restores both', asyn
   s.set(0, 1, 1, 'air');
   const r = await s.flush();
   assert.equal(be.at(0, 1, 0), AIR);
-  assert.match(r.warnings.join('\n'), /wall-mounted.*needs a full block at \[0,1,1\]/);
+  assert.match(r.warnings.join('\n'), /wall-mounted.*support cell \[0,1,1\]: air/);
   const h = new History();
   h.push(r.record!);
   await h.undo('system', be);
@@ -175,4 +175,21 @@ test('resolveSupport: unknown neighbours count as support', () => {
   const rep = resolveSupport([[0, 0, 0]], (x, y, z) => (x === 0 && y === 0 && z === 0 ? R.canonical('torch') : undefined), R, { mode: 'drop' });
   assert.equal(rep.changes.length, 0);
   assert.equal(checkSupportAt(0, 0, 0, R.canonical('torch'), (x, y, z) => (y < 0 ? AIR : undefined), R)?.kind.key, 'floor');
+});
+
+test('vanilla SupportType semantics (verified against decompiled 26.3): hopper rim, fence gates, slabs/stairs bottom faces', () => {
+  const R = reg();
+  const on = (below: string, above: string) => checkSupportAt(0, 1, 0, R.canonical(above), (x, y) => (y === 0 ? R.canonical(below) : y === 2 ? 'minecraft:air' : 'minecraft:air'), R);
+  const under = (above: string, st: string) => checkSupportAt(0, 0, 0, R.canonical(st), (x, y) => (y === 1 ? R.canonical(above) : 'minecraft:air'), R);
+  assert.notEqual(on('hopper', 'torch'), null, 'no torch on a hopper (rim only)');
+  assert.equal(on('hopper', 'rail'), null, 'rails sit on the rigid rim');
+  assert.equal(on('hopper', 'stone_pressure_plate'), null);
+  assert.equal(on('oak_fence_gate', 'lantern'), null);
+  assert.notEqual(under('oak_fence_gate', 'lantern[hanging=true]'), null, '#unstable_bottom_center');
+  assert.notEqual(under('oak_slab[type=top]', 'lantern[hanging=true]'), null, 'a top slab has no bottom face');
+  assert.notEqual(under('oak_stairs[half=top,facing=north]', 'lantern[hanging=true]'), null, 'upside-down stairs do not cover the center');
+  assert.equal(under('oak_stairs[half=bottom,facing=north]', 'lantern[hanging=true]'), null);
+  assert.equal(under('iron_chain[axis=y]', 'lantern[hanging=true]'), null);
+  assert.notEqual(on('oak_slab[type=bottom]', 'torch'), null);
+  assert.equal(on('oak_slab[type=top]', 'torch'), null);
 });

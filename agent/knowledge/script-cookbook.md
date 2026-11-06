@@ -16,7 +16,9 @@ Coordinates are **local** by default: origin = anchor, **y=0 = the anchor's grou
 
 Rules of thumb
 - Ground: built-in `groundY(x,z)` (natural ground inside readBox — ignores plants, leaves, tree logs and this job's
-  own builds); `setSoft` places only into air/plants; `protect(box)` keeps finished parts safe from later sets.
+  own builds); `isWater(x,y,z)` (water, waterlogged, underwater plants — e.g. lily pads only on water);
+  `setSoft` places only into air/plants; `protect(box)` keeps finished parts safe from later sets.
+  readBox is clamped to the allowed box ± 4 (reads far outside stall the real game).
 - Reuse: `define('name', function (params) {...})` once, then `call('name', {...})` in this and later scripts of
   the job; `save_generator` keeps it for future jobs (`list_generators`).
 - One script ≤ ~200k blocks and ≤ 15 s (raise timeoutMs up to 120000 for big terrain); `log()` key coordinates.

@@ -118,6 +118,7 @@ const CylinderOp = z
     hollow: Hollow,
     thickness: Thick,
     caps: z.boolean().optional().describe('hollow: close both ends (default open tube)'),
+    interior: PatternSchema.optional().describe('hollow: fill the inside with this block (tiles exactly with the shell — use it for round floors)'),
     ...blockReq,
   })
   .describe('cylinder / tube');
@@ -202,8 +203,8 @@ const RoofOp = z
     stairs: z.string().describe('stairs block, e.g. "dark_oak_stairs"'),
     slab: z.string().optional().describe('default: matching slab'),
     axis: z.enum(['x', 'z']).optional().describe('ridge direction (default longer side)'),
-    fill: z.union([z.string(), z.boolean()]).optional().describe('solid fill under the roof: true = full block of the stairs, or a block id'),
-    ends: z.string().optional().describe('gable/gambrel/shed: block for the gable end walls'),
+    fill: z.union([z.boolean(), PatternSchema]).optional().describe('solid fill under the roof: true = full block of the stairs, or a block/pattern'),
+    ends: PatternSchema.optional().describe('gable/gambrel/shed: block or pattern for the gable end walls, e.g. "75%white_terracotta,25%calcite"'),
     overhang: z.number().min(0).optional().describe('eaves (default 1, dome 0)'),
     pitch: z.number().min(0).optional().describe('rise per block (default 1; shed 0.5; spire 3)'),
     facing: z.enum(['north', 'south', 'east', 'west']).optional().describe('shed: side that is high'),
@@ -271,6 +272,19 @@ const SlabEdgeFields = {
 };
 const SlabEdgeOp = z.object({ op: z.literal('slab_edge'), ...SlabEdgeFields }).describe('projecting rim around a floor plate (modern cantilevers) + light strip');
 const FasciaOp = z.object({ op: z.literal('fascia'), ...SlabEdgeFields }).describe('alias of slab_edge');
+const VinesOp = z
+  .object({
+    op: z.literal('vines'),
+    box: BoxIn.describe('region of the walls to cover (e.g. the tower box + 1)'),
+    density: z.number().min(0).max(1).optional().describe('share of wall columns (default 0.35), clumped'),
+    from: z.enum(['hang', 'grow', 'both']).optional().describe('hang from wall tops/eaves (default) or grow from the ground'),
+    length: z.number().int().min(1).max(32).optional().describe('max strand length (default 6)'),
+    onlyOutside: z.boolean().optional().describe('exterior faces only (default true)'),
+    block: z.string().optional().describe('vine (default) or glow_lichen'),
+    mask: MaskSchema.optional(),
+    seed: z.number().int().optional(),
+  })
+  .describe('vines on exterior wall faces with correct attachment faces');
 
 export const BuildOpSchema = z.discriminatedUnion('op', [
   SetOp,
@@ -292,6 +306,7 @@ export const BuildOpSchema = z.discriminatedUnion('op', [
   BridgeOp,
   SlabEdgeOp,
   FasciaOp,
+  VinesOp,
 ]);
 export type BuildOp = z.output<typeof BuildOpSchema>;
 
@@ -416,14 +431,27 @@ function execOne(op: BuildOp, ctx: OpContext, index: number): OpResult {
   switch (op.op) {
     case 'set': {
       if (op.entries?.length) {
-        const cache = new Map<string, string>();
+        // each entry block may be a state or a pattern ("keep", "70%a,30%b") evaluated at its position
+        const cache = new Map<string, PatternFn>();
         for (const [x, y, z, b] of op.entries) {
-          let st = cache.get(b);
-          if (!st) {
-            st = canonOrFail(reg, b, `entries block "${b}"`);
-            cache.set(b, st);
+          let f = cache.get(b);
+          if (!f) {
+            const r = reg.tryCanonical(b);
+            if (r.ok) {
+              const st = r.state;
+              f = () => st;
+            } else {
+              try {
+                f = compilePattern(b, reg, { seed });
+              } catch {
+                throw new Fail(`entries block "${b}": ${r.error}`);
+              }
+            }
+            cache.set(b, f);
           }
-          buf.push(Math.round(x), Math.round(y), Math.round(z), st);
+          const rx = Math.round(x), ry = Math.round(y), rz = Math.round(z);
+          const st = f(rx, ry, rz);
+          if (st !== null) buf.push(rx, ry, rz, st);
         }
       }
       const pts = [...(op.pos ? [op.pos] : []), ...(op.positions ?? [])];
@@ -476,28 +504,37 @@ function execOne(op: BuildOp, ctx: OpContext, index: number): OpResult {
     }
     case 'cylinder': {
       const axis = op.axis ?? 'y';
+      let cp: Parameters<typeof S.cylinder>[0];
       if (op.box) {
         const b = boxOf(op.box);
         const ai = axis === 'x' ? 0 : axis === 'y' ? 1 : 2;
         const [ia, ib] = ai === 0 ? [1, 2] : ai === 1 ? [0, 2] : [0, 1];
         const base: Vec3 = [(b.min[0] + b.max[0]) / 2, (b.min[1] + b.max[1]) / 2, (b.min[2] + b.max[2]) / 2];
         base[ai] = b.min[ai];
-        S.cylinder(
-          {
-            base,
-            radius: [(b.max[ia] - b.min[ia]) / 2, (b.max[ib] - b.min[ib]) / 2],
-            height: b.max[ai] - b.min[ai] + 1,
-            axis,
-            hollow: op.hollow,
-            thickness: op.thickness,
-            caps: op.caps,
-          },
-          emit,
-        );
+        cp = { base, radius: [(b.max[ia] - b.min[ia]) / 2, (b.max[ib] - b.min[ib]) / 2], height: b.max[ai] - b.min[ai] + 1, axis, hollow: op.hollow, thickness: op.thickness, caps: op.caps };
       } else {
         if (!op.base || op.radius === undefined || op.height === undefined) throw new Fail('needs "base", "radius", "height" (or "box")');
-        S.cylinder({ base: op.base, radius: op.radius, height: op.height, axis, hollow: op.hollow, thickness: op.thickness, caps: op.caps }, emit);
+        cp = { base: op.base, radius: op.radius, height: op.height, axis, hollow: op.hollow, thickness: op.thickness, caps: op.caps };
       }
+      if (op.interior !== undefined) {
+        if (!op.hollow) throw new Fail('"interior" needs hollow:true');
+        let ipat: PatternFn;
+        try {
+          ipat = compilePattern(op.interior, reg, { seed: seed ^ 0x5bd1e995 });
+        } catch (e) {
+          throw new Fail(`interior: ${(e as Error).message}`);
+        }
+        const shell = new Set<string>();
+        S.cylinder(cp, (x, y, z) => {
+          shell.add(`${x},${y},${z}`);
+          emit(x, y, z);
+        });
+        S.cylinder({ ...cp, hollow: false }, (x, y, z) => {
+          if (shell.has(`${x},${y},${z}`)) return;
+          const st = ipat(x, y, z);
+          if (st !== null) buf.push(x, y, z, st);
+        });
+      } else S.cylinder(cp, emit);
       break;
     }
     case 'cone':
@@ -567,7 +604,7 @@ function execOne(op: BuildOp, ctx: OpContext, index: number): OpResult {
       break;
     }
     case 'roof': {
-      S.roof(
+      const ext = S.roof(
         {
           box: boxOf(op.box),
           style: op.style,
@@ -589,10 +626,17 @@ function execOne(op: BuildOp, ctx: OpContext, index: number): OpResult {
           brackets: op.brackets,
           bracketEvery: op.bracketEvery,
           finial: op.finial,
+          seed,
         },
         reg,
         (x, y, z, st) => buf.push(x, y, z, st),
       );
+      if (ext.blocks) {
+        const w: Vec3 = [0, 0, 0];
+        const ridge = frame.toWorldInto(0, ext.ridgeY, 0, w)[1];
+        const top = frame.toWorldInto(0, ext.topY, 0, w)[1];
+        warnings.push(`roof top at y=${top}${top !== ridge ? ` (ridge y=${ridge})` : ''}`);
+      }
       needBlock = false;
       break;
     }
@@ -604,6 +648,17 @@ function execOne(op: BuildOp, ctx: OpContext, index: number): OpResult {
       };
       const { op: _o, mask: _m, seed: _s, ...bp } = op;
       const rep = B.bridge({ ...bp, from: r3(op.from), to: r3(op.to) }, reg, (x, y, z, st) => buf.push(x, y, z, st), localGet);
+      warnings.push(...rep.warnings);
+      needBlock = false;
+      break;
+    }
+    case 'vines': {
+      const w: Vec3 = [0, 0, 0];
+      const localGet = (x: number, y: number, z: number) => {
+        frame.toWorldInto(x, y, z, w);
+        return frame.stateToLocal(sink.get(w[0], w[1], w[2]));
+      };
+      const rep = B.vines({ box: boxOf(op.box), density: op.density, from: op.from, length: op.length, onlyOutside: op.onlyOutside, block: op.block, seed }, reg, (x, y, z, st) => buf.push(x, y, z, st), localGet);
       warnings.push(...rep.warnings);
       needBlock = false;
       break;
@@ -691,7 +746,8 @@ fill     {op:"fill",box:{min:[0,0,0],max:[8,4,6]},block:"stone_bricks",mode:"wal
 clear    {op:"clear",box:[[0,1,0],[8,6,6]]}   (air; optional mask)
 replace  {op:"replace",box:[[0,0,0],[8,6,6]],from:"cobblestone",to:"70%keep,30%mossy_cobblestone"}
 ellipsoid {op:"ellipsoid",center:[0,10,0],radius:[6,4,6],hollow:true,block:"glass"}  | box:{..} | half:"top" (dome) / "bottom" (bowl); sphere = alias
-cylinder {op:"cylinder",base:[0,0,0],radius:3,height:12,hollow:true,block:"stone_bricks"}  axis x|y|z, caps:true closes a hollow tube, box form fits a box
+cylinder {op:"cylinder",base:[0,0,0],radius:3,height:12,hollow:true,block:"stone_bricks"}  axis x|y|z, caps:true closes a hollow tube, box form fits a box,
+         interior:"spruce_planks" fills the inside exactly (round floors: a 1-high hollow cylinder with interior, SAME radius as the walls)
 cone     {op:"cone",base:[0,12,0],radius:4,height:9,block:"deepslate_tiles"}   height<0 points down
 pyramid  {op:"pyramid",box:{min:[0,0,0],max:[10,0,10]},block:"sandstone"}  | base(center)+size, height, hollow
 torus    {op:"torus",center:[0,5,0],major:6,minor:1,block:"oak_leaves"}
@@ -702,10 +758,12 @@ arch     {op:"arch",from:[0,3,0],to:[6,3,0],height:3,depth:2,style:"round",block
 spiral   {op:"spiral",center:[0,1,0],radius:2,height:16,turns:2,stairs:"stone_brick_stairs",column:"stone_bricks"}  (or block for a helix)
 roof     {op:"roof",box:{min:[-1,6,-1],max:[9,6,7]},style:"gable",stairs:"dark_oak_stairs",ends:"spruce_planks"}
          styles gable|hip|pyramid|shed|dome|spire|mansard|gambrel|flat|cone|swept_hip; box = wall footprint, min.y = first layer above the walls;
-         overhang (default 1; dome 0, swept_hip 2), pitch (1 = 45°, 0.5 low with slabs, 2 steep), axis = ridge direction, slab, fill (true = matching full block, or id), ends (gable walls), facing (shed high side)
+         overhang (default 1; dome 0, swept_hip 2), pitch (1 = 45°, 0.5 low with slabs, 2 steep), axis = ridge direction, slab, fill (true = matching full block, or block/pattern), ends (gable walls; block or pattern like "75%white_terracotta,25%calcite"), facing (shed high side);
+         the result reports "roof top at y=N" — check it against your height limit
          cone = round tower roof built ring by ring (pitch 2 default, 1 = 45°; flare 1 = slab kick at the eave); dome/spire round:true (dome default) for round towers; swept_hip = Asian roof (sweep 1.8, lift 1 corner upturn);
          skipBox = region left free for the next tier (pagoda); eave trim: soffit, fascia, brackets (bracketEvery 2) = true or block id; finial true|id|[ids]
 bridge   {op:"bridge",from:[0,3,-2],to:[20,3,-2],width:5,profile:"arch",deck:"spruce_planks",post:"stripped_spruce_log",supports:"stone_bricks",lantern:"lantern"}
          from/to = standing positions at the ends; profile flat|arch(rise)|sag(sag); walkable half-slab steps; rail (default matching fence, false = none), postEvery 4,
          supports (piers to the ground every supportEvery 6), rope:"iron_chain" (suspension towers + hangers, ropeHeight 5), lanternEvery
+vines    {op:"vines",box:[[-6,1,-6],[6,14,6]],density:0.4,from:"hang",length:6}  exterior wall faces only, faces set automatically (from hang|grow|both)
 slab_edge {op:"slab_edge",box:[[0,4,0],[10,4,8]],block:"smooth_quartz",overhang:1,light:"sea_lantern"}  rim around a floor plate (half top|bottom|full), light under (default) or inline, lightEvery; alias fascia`;

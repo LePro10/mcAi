@@ -25,7 +25,11 @@ async function call(name: string, args: Record<string, unknown> = {}) {
   const r = (await client.callTool({ name, arguments: args })) as { isError?: boolean; content: Array<{ type: string; text?: string }> };
   return { ...r, text: r.content.filter((c) => c.type === 'text').map((c) => c.text).join('\n') };
 }
-const put = (x: number, y: number, z: number, s: string) => mem.edits.set(...W(x, y, z), C(s));
+// direct world edits (like a player's) — drop the job's read cache, as foreign edits do
+const put = (x: number, y: number, z: number, s: string) => {
+  mem.edits.set(...W(x, y, z), C(s));
+  (job.scratch.get('world') as { invalidate(): void } | undefined)?.invalidate();
+};
 const at = (x: number, y: number, z: number) => mem.at(...W(x, y, z));
 
 before(async () => {

@@ -43,7 +43,10 @@ suggested origin). Then `heightmap` of the site and one `render_view` (`top` + `
 water, trees, existing builds. `scan_region` (summary/surface/layers) when you must know exact blocks.
 Note the player's position: never build on it; keep a walkable route from the player to the entrance.
 
-**3. Concept & design brief (10–15%)** — Decide scale (use most of the allowed box, keep 2–4 blocks of margin,
+**3. Concept & design brief (10–15%)** — If get_context shows a `selection`, it is the player's PRIMARY build
+area: the main structure goes inside it; the rest of the allowed box (margin) is only for supports,
+foundations, terrain blending, paths and trees. Read `allowedBox.notes` (e.g. water bed out of reach).
+Decide scale (use most of the selection / allowed box, keep 2–4 blocks of margin,
 size per principles §2). Write a short brief in your reasoning before placing anything:
 - Concept in one sentence + **silhouette** (dominant mass, secondary masses, heights, roof shapes).
 - **Layout**: every element as a local box with coordinates (footprints, floor levels, ridge axes, door
@@ -72,7 +75,8 @@ terraces, stilts or retaining walls.
 7. **Lighting**: designed fixtures + hidden sources; no dark walkable area (block light 0 spawns mobs).
 
 **6. Review loop (after every major pass)** — `render_view` with 2–4 views (`front`, `iso_se`, `iso_nw`, a
-close-up `box` with `zoom`; grey hatched ground = section cut, not part of the world). Look critically, like a
+close-up `box` with `zoom`; grey hatched ground = section cut, not part of the world; `cutOutside:true` hides
+terrain/trees outside the allowed box in front of the build). Look critically, like a
 judge: silhouette, flat walls, roof artifacts, wrong facings, gaps, floating blocks, monotone areas, empty
 spots, transitions to terrain. Read the `physics:` line of build results (dropped floating attachables) and run
 `scan_region` mode `floating` + `dark` before finishing. Fix immediately (`build` over it, or `undo` a bad
@@ -90,11 +94,12 @@ Mode PLAN (stated in the job context): do steps 1–3, `say` the plan, `finish` 
   `dome`/`spire` for towers, `swept_hip` for pagodas/temples with `skipBox` tiers; soffit/fascia/brackets/finial), `bridge`
   (walkable arch/sag/suspension bridges), `slab_edge` (modern projecting floor rims + light strip), arches,
   cylinders, replace (texture passes with masks). Group a whole pass (e.g. all walls of a house) into one call;
-  `skipInvalid:true` builds the valid ops of a batch. Patterns: `"60%stone_bricks,25%cracked_stone_bricks,15%andesite"`,
+  `skipInvalid:true` builds the valid ops of a batch. `vines` (exterior walls only, faces set for you),
+  hollow `cylinder` + `interior` for round floors that tile with the walls. Patterns: `"60%stone_bricks,25%cracked_stone_bricks,15%andesite"`,
   gradients, noise, checker/stripes. Masks restrict what gets replaced (`"air"` = only fill empty space).
 - **run_script** (sandboxed JS, one undo step): anything organic, curved, procedural, repetitive or large —
   trees, rocks, terrain features, rivers, spirals, domes with ribs, window loops along a wall, statues, pixel
-  art, scattering plants by noise. Built-ins `groundY`, `setSoft`, `protect`; write a generator once with
+  art, scattering plants by noise. Built-ins `groundY`, `topY`, `isWater`, `setSoft`, `protect`; write a generator once with
   `define(name, fn)` and `call(name, params)` it again (also in later scripts; `save_generator` for future jobs,
   `list_generators` to reuse saved ones). Start from the cookbook; log() key coordinates.
 - **terraform**: flatten / smooth / raise / lower / naturalize_edges — site prep and blending.
@@ -124,7 +129,7 @@ Mode PLAN (stated in the job context): do steps 1–3, `say` the plan, `finish` 
 - Water/lava must be fully contained. Underwater: `waterlogged=true` on non-full blocks.
 - Attached blocks need support like in vanilla: vines a solid face (or a vine above), wall torches/ladders/
   signs/buttons a block behind, torches/lanterns/candles a full or post block below (not a bottom slab),
-  hanging lanterns a block/chain above, flowers/grass dirt-like ground. Unsupported ones are dropped and listed.
+  hanging lanterns a bottom face above (not top slabs/upside-down stairs), flowers/grass dirt-like ground. Unsupported ones are dropped and listed.
 
 ## Quality checklist (run it before finish)
 - [ ] Silhouette has a dominant mass, varied heights, a real roof with overhang (no full-block roofs).

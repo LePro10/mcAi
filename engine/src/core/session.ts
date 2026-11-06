@@ -8,6 +8,7 @@ import { AIR } from './blockstate.ts';
 import { solveConnections } from './connect.ts';
 import { expandMultiblock } from './multiblock.ts';
 import { PosMap, checkCoord } from './posmap.ts';
+import { assertSafeState } from './safety.ts';
 import { needsSupport, resolveSupport, summarizeSupport, type SupportMode, type SupportReport } from './support.ts';
 import {
   boxContains,
@@ -99,7 +100,9 @@ export function newRecordId(): string {
 const locks = new WeakMap<object, Promise<unknown>>();
 
 /** Serialize async work per backend (flushes, undo, redo never interleave on one backend). */
-export function withBackendLock<T>(backend: WorldBackend, fn: () => Promise<T>): Promise<T> {
+export function withBackendLock<T>(backend0: WorldBackend, fn: () => Promise<T>): Promise<T> {
+  // caching wrappers expose the real backend as lockTarget: all writers serialize on it
+  const backend = (backend0 as { lockTarget?: WorldBackend }).lockTarget ?? backend0;
   const prev = locks.get(backend) ?? Promise.resolve();
   const run = prev.then(fn, fn);
   locks.set(
@@ -156,6 +159,21 @@ async function applyBatch(
     base += part.states.length;
   }
   return { previous, failed, reasons, placed, unchanged, calls };
+}
+
+/**
+ * Placed leaves must not decay: the registry default is persistent=false (natural leaves), and the
+ * game recomputes `distance` on placement, so leaves without a log within 6 would vanish within
+ * minutes. Any *_leaves state that does not say persistent=… explicitly gets persistent=true.
+ */
+export function withPersistentLeaves(state: string, reg: Registry): string {
+  if (!state.includes('leaves') || /[[,]\s*persistent\s*=/.test(state)) return state;
+  const b = state.indexOf('['), c = state.indexOf('{');
+  const idEnd = b >= 0 && (c < 0 || b < c) ? b : c >= 0 ? c : state.length;
+  const id = state.slice(0, idEnd).trim();
+  if (!reg.info(id.includes(':') ? id : `minecraft:${id}`)?.properties.persistent) return state;
+  if (b >= 0 && (c < 0 || b < c)) return `${state.slice(0, b + 1)}persistent=true,${state.slice(b + 1)}`.replace('persistent=true,]', 'persistent=true]');
+  return `${id}[persistent=true]${state.slice(idEnd)}`;
 }
 
 // ------------------------------------------------------------------ EditSession
@@ -292,7 +310,8 @@ export class EditSession implements BlockSink {
     let s: string;
     if (state === this.lastIn) s = this.lastOut;
     else {
-      s = cachedCanonical(this.reg, state);
+      s = cachedCanonical(this.reg, withPersistentLeaves(state, this.reg));
+      assertSafeState(s); // no command blocks / run_command click events
       this.lastIn = state;
       this.lastOut = s;
     }

@@ -14,7 +14,7 @@ Engine:
 - [x] Clamp run_script/scan_region readBox to allowed box ± margin; never trigger huge chunk loads.
 - [x] Script API: `isWater(x,y,z)`; `groundY` outside the ground map → fall back to a world heightmap
       query instead of throwing.
-- [ ] roof op: `ends` accepts patterns; result reports ridge/top y; validate the roof height against the allowed box up front.
+- [x] roof op: `ends` accepts patterns; result reports ridge/top y; validate the roof height against the allowed box up front.
 - [x] Support rules: a bottom-half stair (full bottom face) supports a hanging lantern; the error message names the block above.
 - [x] scan_region floating: lily pads on water are supported.
 - [x] Renderer: lily_pad tint (renders near black).
@@ -31,6 +31,10 @@ Engine (iteration 2 extras: builder suggestions + real castle job):
 - [x] define(): generators keep the defining script's top-level helpers (functions, side-effect-free consts).
 - [x] Script API `topY(x,z,{includeOwn,solid})`; `keep` accepted in build `set` entries.
 - [x] render_view (explicit box) and /api/render auto-crop solid underground (`crop=0` disables).
+- [x] Roofs: cone diagonal seams smoothed (small sawtooth remains on large pitch-1 cones); swept_hip lift ≥ 2 is a smooth corner upturn; every roof style is one 6-connected piece resting on the wall top; roof op reports its top/ridge y and the build tool explains too-tall roofs.
+- [x] Placed leaves never decay: any *_leaves state without an explicit persistent=… is written with persistent=true (EditSession.set; VANILLA-DIFF #2).
+- [x] Test suite: `--test-timeout=120000` in `npm test`; an explicit job `size` is used exactly (the default-box extension had broken the viewer protocol test, whose missing cleanup kept the run alive forever).
+- [x] Security: summon NBT parsed and walked recursively (Passengers only decorative entities; no command-block ids, run_command or Command tags); command blocks / command-block minecarts and run_command click events in block SNBT rejected in EditSession.set and the build dry run (`core/safety.ts`).
 Mod:
 - [x] Integrated server pauses (menu / focus loss) → stalls builds and engine timeouts. (bridge keeps serving while paused)
 - [x] Lag spikes ("Can't keep up! 12 s") during jobs: time-slice get_blocks/chunk loading. (async chunk tickets, read/write lanes)
