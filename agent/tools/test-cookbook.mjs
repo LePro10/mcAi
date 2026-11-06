@@ -33,6 +33,10 @@ const vol = createVolume(box);
 const grass = reg.canonical('grass_block'), dirt = reg.canonical('dirt');
 for (let y = box.min[1]; y <= 0; y++) for (let z = box.min[2]; z <= box.max[2]; z++) for (let x = box.min[0]; x <= box.max[0]; x++) volSet(vol, x, y, z, y === 0 ? grass : dirt);
 
+// natural ground map for the built-in groundY(x,z): flat, ground block at y=0
+const gw = box.max[0] - box.min[0] + 1, gd = box.max[2] - box.min[2] + 1;
+const ground = { x0: box.min[0], z0: box.min[2], w: gw, d: gd, data: new Array(gw * gd).fill(0) };
+
 // ---- mock sandbox (fallback) ----
 const { createNoise } = await import(join(root, 'engine/src/core/noise.ts'));
 function mockRun(code, seed) {
@@ -72,6 +76,9 @@ function mockRun(code, seed) {
     rand, randInt: (lo, hi) => lo + Math.floor(rand() * (hi - lo + 1)), chance: (p) => rand() < p,
     choice: (arr) => arr[Math.floor(rand() * arr.length)], log: (...x) => logs.push(x.map(String).join(' ')),
     block: (id, props) => props ? `${id}[${Object.entries(props).map(([k, v]) => `${k}=${v}`).join(',')}]` : id,
+    groundY: () => 0,
+    setSoft: (x, y, z, b) => { if (!/^(minecraft:)?air/.test(get(x, y, z))) return false; set(x, y, z, b); return true; },
+    protect: () => 0, unprotect: () => 0,
   };
   try { vm.runInNewContext(`(function () {\n${code}\n})()`, api, { timeout: 60000 }); }
   catch (e) { return { entries: [...entries], logs, error: String(e.message), ms: performance.now() - t0 }; }
@@ -86,7 +93,7 @@ let failed = 0;
 for (const [i, b] of blocks.entries()) {
   if (only !== null && !b.heading.startsWith(`${only}.`)) continue;
   const code = prelude.code + '\n' + b.code;
-  const res = real ? await runScript({ code, readBox: box, volume: vol, seed: 7 + i, timeoutMs: 60000 }, reg) : mockRun(code, 7 + i);
+  const res = real ? await runScript({ code, readBox: box, volume: vol, ground, seed: 7 + i, timeoutMs: 60000 }, reg) : mockRun(code, 7 + i);
   const ok = !res.error && res.entries.length > 0;
   if (!ok) failed++;
   console.log(`${ok ? 'OK  ' : 'FAIL'} ${b.heading} — ${res.entries.length} blocks, ${Math.round(res.ms)} ms${res.logs.length ? ' | ' + res.logs.join(' | ').slice(0, 110) : ''}`);

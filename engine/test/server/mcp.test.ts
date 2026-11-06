@@ -133,7 +133,7 @@ test('scan_region, heightmap, find_blocks, block_info', async () => {
   assert.match(sum.text, /stone_bricks/);
   const blocks = await call('scan_region', { box: { min: [0, 2, -2], max: [0, 2, -2] }, mode: 'blocks' });
   assert.match(blocks.text, /oak_stairs\[facing=north/); // local orientation back
-  const dark = await call('scan_region', { box: { min: [-3, 0, -5], max: [3, 4, 1] }, mode: 'dark', roofedOnly: false });
+  const dark = await call('scan_region', { box: { min: [-3, 0, -5], max: [3, 4, 1] }, mode: 'dark', include: ['interior', 'covered', 'outdoor'] });
   assert.ok(!dark.isError, dark.text);
   assert.match(dark.text, /dark spawnable spots/);
   const surf = await call('scan_region', { box: { min: [-2, 0, -4], max: [2, 3, 0] }, mode: 'surface' });

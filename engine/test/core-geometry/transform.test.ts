@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { mirrorPos, mirrorState, rotatePos, rotateState, rotateDir, mirrorDir, type QuarterTurns } from '../../src/core/transform.ts';
 import type { Vec3 } from '../../src/core/types.ts';
 import { combos, reg, stateOf } from './helpers.ts';
+import { loadFactor } from '../load.ts';
 
 const ROT_PROPS = new Set([
   'facing', 'horizontal_facing', 'axis', 'rotation', 'north', 'east', 'south', 'west', 'up', 'down',
@@ -163,5 +164,5 @@ test('SNBT is preserved through rotate/mirror', () => {
 test('rotation is fast (cached)', () => {
   const t0 = performance.now();
   for (let i = 0; i < 500_000; i++) rotateState('minecraft:oak_stairs[facing=north,half=bottom,shape=straight,waterlogged=false]', 1, reg);
-  assert.ok(performance.now() - t0 < 1500);
+  assert.ok(performance.now() - t0 < 1500 * loadFactor());
 });

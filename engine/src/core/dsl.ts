@@ -8,6 +8,7 @@ import type { Frame } from './frame.ts';
 import { compilePattern, type PatternFn, type PatternSpec } from './pattern.ts';
 import { compileMask, type MaskFn, type MaskSpec } from './mask.ts';
 import * as S from './shapes.ts';
+import * as B from './builders.ts';
 import { blockId } from './blockstate.ts';
 
 export interface BlockSink {
@@ -197,15 +198,25 @@ const RoofOp = z
   .object({
     op: z.literal('roof'),
     box: BoxIn.describe('footprint (outer walls); min.y = first roof layer, on top of the walls'),
-    style: z.enum(['gable', 'hip', 'pyramid', 'shed', 'dome', 'spire', 'mansard', 'gambrel', 'flat']),
+    style: z.enum(['gable', 'hip', 'pyramid', 'shed', 'dome', 'spire', 'mansard', 'gambrel', 'flat', 'cone', 'swept_hip']),
     stairs: z.string().describe('stairs block, e.g. "dark_oak_stairs"'),
     slab: z.string().optional().describe('default: matching slab'),
     axis: z.enum(['x', 'z']).optional().describe('ridge direction (default longer side)'),
-    fill: z.string().optional().describe('solid fill under the roof'),
+    fill: z.union([z.string(), z.boolean()]).optional().describe('solid fill under the roof: true = full block of the stairs, or a block id'),
     ends: z.string().optional().describe('gable/gambrel/shed: block for the gable end walls'),
     overhang: z.number().min(0).optional().describe('eaves (default 1, dome 0)'),
     pitch: z.number().min(0).optional().describe('rise per block (default 1; shed 0.5; spire 3)'),
     facing: z.enum(['north', 'south', 'east', 'west']).optional().describe('shed: side that is high'),
+    round: z.boolean().optional().describe('dome/spire: round footprint (dome default true; cone always round)'),
+    flare: z.number().optional().describe('cone/round spire: eave rings kicked out at half slope (cone 1, spire 0; ≤ overhang)'),
+    sweep: z.number().optional().describe('swept_hip: concavity (default 1.8)'),
+    lift: z.number().optional().describe('swept_hip: upturn of the eave corners in blocks (default 1, 0 = none)'),
+    skipBox: BoxIn.optional().describe('leave this x/z region empty (the next tier of a pagoda / tower stands there)'),
+    soffit: z.union([z.string(), z.boolean()]).optional().describe('underside of the overhang (true = upside-down roof stairs)'),
+    fascia: z.union([z.string(), z.boolean()]).optional().describe('trim under the eave edge (true = top slab)'),
+    brackets: z.union([z.string(), z.boolean()]).optional().describe('brackets under the eave along the walls (true = upside-down stairs)'),
+    bracketEvery: z.number().int().optional().describe('bracket spacing (default 2)'),
+    finial: z.union([z.string(), z.array(z.string()), z.boolean()]).optional().describe('ornament stacked on the apex / ridge ends (true = wall/fence + lightning rod)'),
     mask: MaskSchema.optional(),
     seed: z.number().int().optional(),
   })
@@ -222,6 +233,44 @@ const ReplaceOp = z
 const ClearOp = z
   .object({ op: z.literal('clear'), box: BoxIn.optional(), from: Vec3In.optional(), to: Vec3In.optional(), ...common })
   .describe('set a box to air');
+
+const BridgeOp = z
+  .object({
+    op: z.literal('bridge'),
+    from: Vec3In.describe('standing position at one end (deck block is below it)'),
+    to: Vec3In.describe('standing position at the other end'),
+    width: z.number().int().min(1).max(15).optional().describe('total width incl. rails (default 3)'),
+    profile: z.enum(['flat', 'arch', 'sag']).optional().describe('default flat'),
+    rise: z.number().min(0).optional().describe('arch height (default span/8)'),
+    sag: z.number().min(0).optional().describe('sag depth (default span/12)'),
+    deck: z.string().describe('full deck block, e.g. "spruce_planks"; matching slabs make half steps'),
+    deckSlab: z.string().optional(),
+    rail: z.union([z.string(), z.literal(false)]).optional().describe('fence/wall on both edges (default matching fence; false = none)'),
+    post: z.string().optional().describe('post block every postEvery (e.g. "stripped_spruce_log")'),
+    postEvery: z.number().int().min(2).optional(),
+    supports: z.string().optional().describe('pier block down to the ground every supportEvery (default 6)'),
+    supportEvery: z.number().int().min(2).optional(),
+    rope: z.string().optional().describe('suspension: "iron_chain" or a fence; towers at the ends, sagging rope + hangers'),
+    ropeHeight: z.number().int().min(3).max(16).optional(),
+    lantern: z.string().optional().describe('on posts/towers, every lanternEvery'),
+    lanternEvery: z.number().int().min(2).optional(),
+    mask: MaskSchema.optional(),
+    seed: z.number().int().optional(),
+  })
+  .describe('walkable bridge (half-slab steps, rails, posts, piers, ropes, lanterns)');
+const SlabEdgeFields = {
+  box: BoxIn.describe('floor plate footprint; max.y = plate layer'),
+  block: z.string().describe('rim material, e.g. "smooth_quartz" (its slab is used)'),
+  overhang: z.number().int().min(1).max(4).optional().describe('default 1'),
+  half: z.enum(['top', 'bottom', 'full']).optional().describe('top slab (default, flush with the floor), bottom slab or full'),
+  light: z.string().optional().describe('light strip block, e.g. "sea_lantern", "end_rod"'),
+  lightAt: z.enum(['under', 'inline']).optional().describe('under the outer rim (default) or inside it'),
+  lightEvery: z.number().int().min(1).optional(),
+  mask: MaskSchema.optional(),
+  seed: z.number().int().optional(),
+};
+const SlabEdgeOp = z.object({ op: z.literal('slab_edge'), ...SlabEdgeFields }).describe('projecting rim around a floor plate (modern cantilevers) + light strip');
+const FasciaOp = z.object({ op: z.literal('fascia'), ...SlabEdgeFields }).describe('alias of slab_edge');
 
 export const BuildOpSchema = z.discriminatedUnion('op', [
   SetOp,
@@ -240,6 +289,9 @@ export const BuildOpSchema = z.discriminatedUnion('op', [
   RoofOp,
   ReplaceOp,
   ClearOp,
+  BridgeOp,
+  SlabEdgeOp,
+  FasciaOp,
 ]);
 export type BuildOp = z.output<typeof BuildOpSchema>;
 
@@ -527,10 +579,40 @@ function execOne(op: BuildOp, ctx: OpContext, index: number): OpResult {
           overhang: op.overhang,
           pitch: op.pitch,
           facing: op.facing,
+          round: op.round,
+          flare: op.flare,
+          sweep: op.sweep,
+          lift: op.lift,
+          skipBox: op.skipBox ? boxOf(op.skipBox) : undefined,
+          soffit: op.soffit,
+          fascia: op.fascia,
+          brackets: op.brackets,
+          bracketEvery: op.bracketEvery,
+          finial: op.finial,
         },
         reg,
         (x, y, z, st) => buf.push(x, y, z, st),
       );
+      needBlock = false;
+      break;
+    }
+    case 'bridge': {
+      const w: Vec3 = [0, 0, 0];
+      const localGet = (x: number, y: number, z: number) => {
+        frame.toWorldInto(x, y, z, w);
+        return frame.stateToLocal(sink.get(w[0], w[1], w[2]));
+      };
+      const { op: _o, mask: _m, seed: _s, ...bp } = op;
+      const rep = B.bridge({ ...bp, from: r3(op.from), to: r3(op.to) }, reg, (x, y, z, st) => buf.push(x, y, z, st), localGet);
+      warnings.push(...rep.warnings);
+      needBlock = false;
+      break;
+    }
+    case 'slab_edge':
+    case 'fascia': {
+      const { op: _o, mask: _m, seed: _s, box: bx, ...ep } = op;
+      const rep = B.slabEdge({ ...ep, box: boxOf(bx) }, reg, (x, y, z, st) => buf.push(x, y, z, st));
+      warnings.push(...rep.warnings);
       needBlock = false;
       break;
     }
@@ -619,5 +701,11 @@ polygon  {op:"polygon",points:[[0,0],[8,0],[12,6],[4,10]],y:0,height:5,hollow:tr
 arch     {op:"arch",from:[0,3,0],to:[6,3,0],height:3,depth:2,style:"round",block:"stone_bricks"}   ring only; opening stays free; style round|pointed|flat
 spiral   {op:"spiral",center:[0,1,0],radius:2,height:16,turns:2,stairs:"stone_brick_stairs",column:"stone_bricks"}  (or block for a helix)
 roof     {op:"roof",box:{min:[-1,6,-1],max:[9,6,7]},style:"gable",stairs:"dark_oak_stairs",ends:"spruce_planks"}
-         styles gable|hip|pyramid|shed|dome|spire|mansard|gambrel|flat; box = wall footprint, min.y = first layer above the walls;
-         overhang (default 1, eaves continue the slope down), pitch (1 = 45°, 0.5 low with slabs, 2 steep), axis = ridge direction, slab, fill (solid), ends (gable walls), facing (shed high side)`;
+         styles gable|hip|pyramid|shed|dome|spire|mansard|gambrel|flat|cone|swept_hip; box = wall footprint, min.y = first layer above the walls;
+         overhang (default 1; dome 0, swept_hip 2), pitch (1 = 45°, 0.5 low with slabs, 2 steep), axis = ridge direction, slab, fill (true = matching full block, or id), ends (gable walls), facing (shed high side)
+         cone = round tower roof built ring by ring (pitch 2 default, 1 = 45°; flare 1 = slab kick at the eave); dome/spire round:true (dome default) for round towers; swept_hip = Asian roof (sweep 1.8, lift 1 corner upturn);
+         skipBox = region left free for the next tier (pagoda); eave trim: soffit, fascia, brackets (bracketEvery 2) = true or block id; finial true|id|[ids]
+bridge   {op:"bridge",from:[0,3,-2],to:[20,3,-2],width:5,profile:"arch",deck:"spruce_planks",post:"stripped_spruce_log",supports:"stone_bricks",lantern:"lantern"}
+         from/to = standing positions at the ends; profile flat|arch(rise)|sag(sag); walkable half-slab steps; rail (default matching fence, false = none), postEvery 4,
+         supports (piers to the ground every supportEvery 6), rope:"iron_chain" (suspension towers + hangers, ropeHeight 5), lanternEvery
+slab_edge {op:"slab_edge",box:[[0,4,0],[10,4,8]],block:"smooth_quartz",overhang:1,light:"sea_lantern"}  rim around a floor plate (half top|bottom|full), light under (default) or inline, lightEvery; alias fascia`;

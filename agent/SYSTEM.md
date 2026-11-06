@@ -19,9 +19,9 @@ lighting, story details. Never a box with holes. Never floating junk. Never igno
 - `knowledge/palettes.json` — machine-readable palettes per style incl. ready weighted mixes.
 - `knowledge/block-states.md` — facing/half/axis semantics, lights, plants, copper, signs/banners SNBT,
   entities via command. Read before detailing, interiors, signs or entities.
-- `knowledge/script-cookbook.md` — tested run_script recipes: branching trees, arched bridge, spiral tower,
-  ribbed dome, terrain-following walls, river, voronoi path, cherry grove, floating island, rose window,
-  waves, village layout, boulders, treehouse kit, swept roofs. Copy the prelude + a recipe, adapt params.
+- `knowledge/script-cookbook.md` — tested run_script recipes: branching trees, spiral tower, ribbed dome,
+  terrain-following walls, river, voronoi path, cherry grove, floating island, rose window, waves, village
+  layout, boulders, treehouse kit. Copy the prelude + a recipe, adapt params.
 
 ## Coordinates (local space — default for every tool)
 - Origin = the anchor block the player targeted; **y=0 = the anchor's ground level**.
@@ -53,17 +53,18 @@ size per principles §2). Write a short brief in your reasoning before placing a
 - **Focal points** (2–3) and the story (who lives/works here).
 Then `say` one friendly sentence to the player about the concept.
 
-**4. Site & foundation (15–25%)** — `clear` vegetation/junk where buildings go (mode above_ground or
-vegetation, only inside footprints + 1–2 margin). `terraform` gently (flatten pads with blend, terraces,
-smooth) — keep natural features that improve the composition. Foundations follow the terrain: plinths go
-down to real ground at every edge; on slopes use terraces, stilts or retaining walls.
+**4. Site & foundation (15–25%)** — `clear` vegetation/junk where buildings go (mode vegetation /
+natural_trees / above_ground, only inside footprints + 1–2 margin; water is never drained). `terraform` gently
+(flatten pads with blend or `retainingWall`, terraces, smooth) — keep natural features that improve the
+composition. Foundations follow the terrain: plinths go down to real ground at every edge; on slopes use
+terraces, stilts or retaining walls.
 
 **5. Build in passes (25–85%)** — always big batched calls, each with a `label`:
 1. **Massing**: main volumes, floor slabs, towers — check proportions with a render before detailing.
 2. **Walls with depth**: frame plane (pillars, beams), recessed infill (−1), window plane, base course,
    protrusions (sills, shutters, buttresses, balconies).
-3. **Roofs**: stairs/slabs with overhang, eave trim, gables/dormers/chimneys, ridge caps (roof op for standard
-   forms, cookbook recipes for swept/round/curved ones).
+3. **Roofs**: stairs/slabs with overhang, eave trim, gables/dormers/chimneys, ridge caps (`roof` op for all
+   standard, round and swept forms; scripts only for truly free-form roofs).
 4. **Detailing**: textures, trims, lanterns, banners, flower boxes, wear, signage.
 5. **Interior** of everything visible through openings or enterable (furnished rooms with function).
 6. **Landscaping**: paths following desire lines, gardens, trees (scripts), rocks, water, fences, terrain
@@ -71,10 +72,11 @@ down to real ground at every edge; on slopes use terraces, stilts or retaining w
 7. **Lighting**: designed fixtures + hidden sources; no dark walkable area (block light 0 spawns mobs).
 
 **6. Review loop (after every major pass)** — `render_view` with 2–4 views (`front`, `iso_se`, `iso_nw`, a
-close-up `box` with `zoom`). Look critically, like a judge: silhouette, flat walls, roof artifacts, wrong
-facings, gaps, floating blocks, monotone areas, empty spots, transitions to terrain. Fix immediately
-(`build` over it, or `undo` a bad step). For big builds run the `critic` subagent once near the end and fix
-its top items.
+close-up `box` with `zoom`; grey hatched ground = section cut, not part of the world). Look critically, like a
+judge: silhouette, flat walls, roof artifacts, wrong facings, gaps, floating blocks, monotone areas, empty
+spots, transitions to terrain. Read the `physics:` line of build results (dropped floating attachables) and run
+`scan_region` mode `floating` + `dark` before finishing. Fix immediately (`build` over it, or `undo` a bad
+step). For big builds run the `critic` subagent once near the end and fix its top items.
 
 **7. Finish (95–100%)** — final `render_view` (front + iso), short `say` that it's done, then `finish` with
 `summary` (1–3 sentences in the player's language), `highlights` (≤ 6), and `suggestions` (see below).
@@ -84,19 +86,24 @@ Mode PLAN (stated in the job context): do steps 1–3, `say` the plan, `finish` 
 
 ## Choosing the right tool
 - **build** (batched DSL ops, one undo step, ≤ 500 ops/call): precise architecture — walls (`fill` with
-  `mode:walls`/`hollow`), floors, beams, window rows, roofs (`roof` op: gable/hip/pyramid/shed/dome/spire/
-  mansard/gambrel/flat), arches, cylinders, replace (texture passes with masks). Group a whole pass (e.g. all
-  walls of a house) into one call. Patterns: `"60%stone_bricks,25%cracked_stone_bricks,15%andesite"`,
+  `mode:walls`/`hollow`), floors, beams, window rows, roofs (`roof` op: gable/hip/pyramid/shed/mansard/gambrel/flat, `cone` and round
+  `dome`/`spire` for towers, `swept_hip` for pagodas/temples with `skipBox` tiers; soffit/fascia/brackets/finial), `bridge`
+  (walkable arch/sag/suspension bridges), `slab_edge` (modern projecting floor rims + light strip), arches,
+  cylinders, replace (texture passes with masks). Group a whole pass (e.g. all walls of a house) into one call;
+  `skipInvalid:true` builds the valid ops of a batch. Patterns: `"60%stone_bricks,25%cracked_stone_bricks,15%andesite"`,
   gradients, noise, checker/stripes. Masks restrict what gets replaced (`"air"` = only fill empty space).
 - **run_script** (sandboxed JS, one undo step): anything organic, curved, procedural, repetitive or large —
-  trees, rocks, terrain features, rivers, spirals, domes with ribs, curved bridges, window loops along a
-  wall, statues, pixel art, scattering plants by noise. Start from the cookbook; log() key coordinates.
+  trees, rocks, terrain features, rivers, spirals, domes with ribs, window loops along a wall, statues, pixel
+  art, scattering plants by noise. Built-ins `groundY`, `setSoft`, `protect`; write a generator once with
+  `define(name, fn)` and `call(name, params)` it again (also in later scripts; `save_generator` for future jobs,
+  `list_generators` to reuse saved ones). Start from the cookbook; log() key coordinates.
 - **terraform**: flatten / smooth / raise / lower / naturalize_edges — site prep and blending.
 - **place_prefab**: `name:'list'` shows prefabs; use them for standard pieces when they fit, then customize.
 - **copy / paste / stack / move**: build one good module (house variant, arch bay, window unit, tree) and
   repeat it with rotation/mirroring/offsets instead of rebuilding. `save_structure` excellent reusable
   pieces; `list_structures`/`load_structure` to reuse the library (may contain the player's own saves).
-- **clear**: remove vegetation/blocks before building; also to delete stray junk.
+- **clear**: remove vegetation/blocks before building, stray junk, `tree_debris` after trimming trees;
+  `onlyUnbuilt:true` never touches your own blocks.
 - **command**: summon decorative entities (armor stands, item frames, paintings, block/item/text displays),
   fillbiome, particles. World coordinates, not undoable — use sparingly and last.
 - **find_blocks / block_info**: verify ids and states before using anything unusual (26.3 names differ from
@@ -115,15 +122,18 @@ Mode PLAN (stated in the job context): do steps 1–3, `say` the plan, `finish` 
   Campfires are lit by default. Copper: always `waxed_*`. `redstone_lamp[lit=true]` turns off on update —
   prefer `waxed_copper_bulb[lit=true]`, froglights, sea lanterns, glowstone, shroomlight.
 - Water/lava must be fully contained. Underwater: `waterlogged=true` on non-full blocks.
+- Attached blocks need support like in vanilla: vines a solid face (or a vine above), wall torches/ladders/
+  signs/buttons a block behind, torches/lanterns/candles a full or post block below (not a bottom slab),
+  hanging lanterns a block/chain above, flowers/grass dirt-like ground. Unsupported ones are dropped and listed.
 
 ## Quality checklist (run it before finish)
 - [ ] Silhouette has a dominant mass, varied heights, a real roof with overhang (no full-block roofs).
 - [ ] Every facade has ≥ 3 depth planes; no large single-block flat surface; materials mixed with intent.
 - [ ] Odd widths for symmetric elements; door/room/ceiling scale per principles; entrance on +z, framed.
 - [ ] Windows inset with sills/lintels/shutters; interiors furnished wherever visible.
-- [ ] Foundation grips the terrain; edges blended; no dirt cliffs, no floating blocks, no decaying leaves.
+- [ ] Foundation grips the terrain; edges blended; no dirt cliffs; `scan_region floating` is clean.
 - [ ] Paths connect entrances and the site edge; the player can walk in; nothing built on the player.
-- [ ] Lighting designed and sufficient; no dark walkable floor.
+- [ ] Lighting designed and sufficient; `scan_region dark` lists no interior spots.
 - [ ] Facings verified in a close-up render (stairs, doors, trapdoors, beds, signs).
 - [ ] Everything inside the allowed box.
 

@@ -30,6 +30,12 @@ export interface RenderParams {
   fogStart: number;
   fogCol: number[];
   night: boolean;
+  /** draw natural terrain cut by the volume boundary (or the cutaway) flat, in a neutral section style */
+  section?: boolean;
+  /** elevation cutaway: natural terrain cells with grid coord (axis 0 = x, 2 = z) beyond clipAt on the clipSign side are skipped */
+  clipAxis?: number;
+  clipSign?: number;
+  clipAt?: number;
   /** optional sub-rectangle of the framebuffer to trace (all rows otherwise) */
 }
 
@@ -41,6 +47,22 @@ const NX = [0, 0, 0, 0, -1, 1], NY = [-1, 1, 0, 0, 0, 0], NZ = [0, 0, -1, 1, 0, 
 
 export function createTracer(S: SceneData, R: RenderParams) {
   const { sx, sy, sz, grid, sky, blk, pKind, pFlags, pGroup, pElem, pTint, pColor, pEmit, pFluidH, elems, atlas, atlasW, texRect } = S;
+  const pGlass = S.pGlass, pTerrain = S.pTerrain;
+  const SECTION = R.section !== false;
+  const clipAxis = R.clipAxis ?? -1, clipSign = R.clipSign ?? 1, clipAt = R.clipAt ?? 0;
+  /** cell removed by the elevation cutaway */
+  const clipped = (p: number, x: number, z: number): boolean => {
+    if (clipAxis < 0 || pTerrain[p] === 0) return false;
+    const c = clipAxis === 0 ? x : z;
+    return clipSign > 0 ? c > clipAt : c < clipAt;
+  };
+  /** neighbour of (x,y,z) across world face d is outside the volume or cut away → (x,y,z) shows a section face */
+  const cutFace = (x: number, y: number, z: number, d: number): boolean => {
+    const nx = x + NX[d], ny = y + NY[d], nz = z + NZ[d];
+    if (d === 0) return false;
+    if (nx < 0 || ny < 0 || nz < 0 || nx >= sx || ny >= sy || nz >= sz) return true;
+    return clipAxis >= 0 && clipped(grid[(ny * sz + nz) * sx + nx], nx, nz);
+  };
   const layer = sx * sz;
   const { brick, bsx, bsz } = S;
   const ox = S.ox, oy = S.oy, oz = S.oz;
@@ -338,7 +360,7 @@ export function createTracer(S: SceneData, R: RenderParams) {
         continue;
       }
       const p = grid[(y * sz + z) * sx + x];
-      const k = pKind[p];
+      const k = clipAxis >= 0 && clipped(p, x, z) ? K_EMPTY : pKind[p];
       if (k !== K_EMPTY) {
         const fl = pFlags[p];
         if (fl & F_OCC) return 0;
@@ -353,6 +375,7 @@ export function createTracer(S: SceneData, R: RenderParams) {
           faceColor(p, eo, iD);
           if (fl & F_TRANSLUCENT) T *= 1 - ta * 0.75;
           else if (ta >= 0.5) return 0;
+          else if (pGlass[p]) T *= 0.85;
           if (T < 0.03) return 0;
         }
       }
@@ -440,7 +463,8 @@ export function createTracer(S: SceneData, R: RenderParams) {
       let prevP = 0;
       for (let guard = 0; guard < 8192; guard++) {
         const idx = (y * sz + z) * sx + x;
-        const p = grid[idx];
+        const p0 = grid[idx];
+        const p = clipAxis >= 0 && clipped(p0, x, z) ? 0 : p0;
         const k = pKind[p];
         if (k === K_EMPTY && !inWater && brick[((y >> 2) * bsz + (z >> 2)) * bsx + (x >> 2)] === 0) {
           // empty 4³ brick: jump to its exit
@@ -490,6 +514,21 @@ export function createTracer(S: SceneData, R: RenderParams) {
             } else if (entryFace === 1 && covered === false && ey <= h) {
               ts = t; fny = 1;
             }
+            if (ts >= 0 && SECTION && fny === 0 && ts === t && cutFace(x, y, z, entryFace)) {
+              // water cut by the volume boundary: flat section colour instead of an aquarium wall
+              const hx = px + dx * ts, hy = py + dy * ts, hz = pz + dz * ts;
+              if (firstT < 0) firstT = ts;
+              tr = wTR * 0.55; tg = wTG * 0.6; tb = wTB * 0.7;
+              if (fl & F_LAVA) { tr = 0.6; tg = 0.2; tb = 0.03; }
+              shade(hx, hy, hz, fnx, 0, fnz, false, false, 0);
+              const a = 0.9;
+              accR += T * a * cr; accG += T * a * cg; accB += T * a * cb;
+              T *= 1 - a;
+              inWater = true;
+              tW = ts;
+              if (T < 0.01) break;
+              ts = -1;
+            }
             if (ts >= 0) {
               const hx = px + dx * ts, hy = py + dy * ts, hz = pz + dz * ts;
               if (firstT < 0) firstT = ts;
@@ -538,13 +577,18 @@ export function createTracer(S: SceneData, R: RenderParams) {
               const hx = px + dx * t, hy = py + dy * t, hz = pz + dz * t;
               const wlx = hx - x, wly = hy - y, wlz = hz - z;
               let hit = false;
-              for (let e = ne - 1; e >= 0; e--) {
+              const section = SECTION && pTerrain[p] === 1 && (fl & F_OCC) !== 0 && cutFace(x, y, z, entryFace);
+              for (let e = ne - 1; e >= 0 && !section; e--) {
                 const eo = (e0 + e) * ES;
                 const d = elemDir(eo, entryFace);
                 if (elems[eo + 20 + d * FS] < -1.5) continue;
                 toElem(eo, wlx, wly, wlz);
                 faceUv(eo, d, hitQx, hitQy, hitQz, wlx, wly, wlz, entryFace);
                 faceColor(p, eo, d);
+                if (pGlass[p]) {
+                  hit = true;
+                  break;
+                }
                 if ((fl & F_TRANSLUCENT) !== 0) {
                   if (ta < 0.02) continue;
                   hit = true;
@@ -565,13 +609,35 @@ export function createTracer(S: SceneData, R: RenderParams) {
                   tW = t;
                 }
                 if ((fl & F_FLAT) !== 0) flatVariation(x, y, z, entryFace);
-                const alpha = ta;
-                shade(hx, hy, hz, NX[entryFace], NY[entryFace], NZ[entryFace], (fl & F_AO) !== 0, false, pEmit[p]);
+                let alpha = ta;
+                if (pGlass[p]) {
+                  glass(p, hx, hy, hz, NX[entryFace], NY[entryFace], NZ[entryFace], dx, dy, dz, faceEdge(wlx, wly, wlz, entryFace));
+                  alpha = gA;
+                } else shade(hx, hy, hz, NX[entryFace], NY[entryFace], NZ[entryFace], (fl & F_AO) !== 0, false, pEmit[p]);
                 accR += T * alpha * cr; accG += T * alpha * cg; accB += T * alpha * cb;
                 T *= 1 - alpha;
                 if (T < 0.01) break;
+              } else if (section) {
+                if (firstT < 0) firstT = t;
+                if (inWater) {
+                  const a = 1 - Math.exp(-WABS * (t - tW));
+                  accR += T * a * wTR * WSC; accG += T * a * wTG * WSC; accB += T * a * wTB * WSC;
+                  T *= 1 - a;
+                  tW = t;
+                }
+                sectionColor(p, x, y, z, hx, hy, hz, entryFace);
+                accR += T * cr; accG += T * cg; accB += T * cb;
+                T = 0;
+                break;
               }
             }
+          } else if (SECTION && pTerrain[p] === 1 && entryFace >= 0 && cutFace(x, y, z, entryFace)) {
+            // non-cube terrain (dirt path, farmland, …) cut by the boundary: section face
+            if (firstT < 0) firstT = t;
+            sectionColor(p, x, y, z, px + dx * t, py + dy * t, pz + dz * t, entryFace);
+            accR += T * cr; accG += T * cg; accB += T * cb;
+            T = 0;
+            break;
           } else if (pElem[p * 2 + 1] > 0) {
             // general: collect element hits in this cell
             const e0 = pElem[p * 2], ne = pElem[p * 2 + 1];
@@ -605,8 +671,9 @@ export function createTracer(S: SceneData, R: RenderParams) {
               faceUv(eo, d, hitQx, hitQy, hitQz, lhx, lhy, lhz, wd);
               faceColor(p, eo, d);
               const transl = (fl & F_TRANSLUCENT) !== 0;
-              if (transl ? ta < 0.02 : ta < 0.5) continue;
-              if (!transl) ta = 1;
+              const gk = pGlass[p];
+              if (!gk && (transl ? ta < 0.02 : ta < 0.5)) continue;
+              if (!transl && !gk) ta = 1;
               if (firstT < 0) firstT = tt;
               if (inWater) {
                 const a = 1 - Math.exp(-WABS * (tt - tW));
@@ -617,9 +684,12 @@ export function createTracer(S: SceneData, R: RenderParams) {
               const fo = eo + 20 + d * FS;
               const nx = elems[fo + 9], ny = elems[fo + 10], nz = elems[fo + 11];
               if ((fl & F_FLAT) !== 0) flatVariation(x, y, z, wd);
-              const alpha = ta;
+              let alpha = ta;
               const plant = (fl & F_PLANT) !== 0 && (elems[eo + 19] & 2) === 0;
-              shade(x + lhx, y + lhy, z + lhz, nx, ny, nz, (fl & F_AO) !== 0 && (elems[eo + 19] & 2) !== 0, plant, pEmit[p]);
+              if (gk) {
+                glass(p, x + lhx, y + lhy, z + lhz, nx, ny, nz, dx, dy, dz, faceEdge(lhx, lhy, lhz, wd));
+                alpha = gA;
+              } else shade(x + lhx, y + lhy, z + lhz, nx, ny, nz, (fl & F_AO) !== 0 && (elems[eo + 19] & 2) !== 0, plant, pEmit[p]);
               accR += T * alpha * cr; accG += T * alpha * cg; accB += T * alpha * cb;
               T *= 1 - alpha;
             }
@@ -686,6 +756,84 @@ export function createTracer(S: SceneData, R: RenderParams) {
       accB = accB * (1 - f) + R.fogCol[2] * f;
     }
     outR = accR; outG = accG; outB = accB;
+  }
+
+  /** distance (block units) of a block-local hit point to the nearest edge of its face square */
+  function faceEdge(lx: number, ly: number, lz: number, d: number): number {
+    let a: number, b: number;
+    if (d < 2) { a = lx; b = lz; } else if (d < 4) { a = lx; b = ly; } else { a = lz; b = ly; }
+    a -= Math.floor(a); b -= Math.floor(b);
+    return Math.min(a, 1 - a, b, 1 - b);
+  }
+
+  let gA = 1;
+  /**
+   * Glass surface (texel in tr..ta): clear glass gets a cool tint, darker frame edges and a fresnel
+   * sky reflection with soft diagonal glare streaks; stained glass keeps its colour plus the reflection.
+   * Result → cr,cg,cb and coverage gA.
+   */
+  function glass(p: number, hx: number, hy: number, hz: number, nx: number, ny: number, nz: number, dx: number, dy: number, dz: number, edge: number): void {
+    const kind = pGlass[p];
+    let a: number, frame = false;
+    if (kind === 1) {
+      if (ta >= 0.5 || edge < 0.07) {
+        frame = true;
+        tr = tr * 0.45 + 0.03; tg = tg * 0.47 + 0.035; tb = tb * 0.5 + 0.04;
+        a = 1;
+      } else {
+        tr = 0.34; tg = 0.46; tb = 0.52;
+        a = 0.2;
+      }
+    } else {
+      a = Math.max(0.42, ta);
+      if (edge < 0.05) { tr *= 0.6; tg *= 0.6; tb *= 0.6; a = Math.max(a, 0.85); }
+    }
+    shade(hx, hy, hz, nx, ny, nz, frame, false, pEmit[p]);
+    if (frame) { gA = a; return; }
+    const dn = dx * nx + dy * ny + dz * nz;
+    const cosT = Math.min(1, Math.abs(dn));
+    const fres = Math.pow(1 - cosT, 5);
+    const rx = dx - 2 * dn * nx, ry = dy - 2 * dn * ny, rz = dz - 2 * dn * nz;
+    skyColor(ry, rx, rz);
+    // soft diagonal glare bands across the pane (world-aligned, so neighbouring panes continue them)
+    const w = (hx + ox) * 0.55 + (hz + oz) * 0.55 + (hy + oy) * 0.9;
+    const band = 0.5 + 0.5 * Math.sin(w * 0.9);
+    const glare = 0.7 + 0.75 * band * band * band * band;
+    let refl = ((kind === 1 ? 0.24 : 0.12) + 0.6 * fres) * glare;
+    if (refl > 0.9) refl = 0.9;
+    let spec = rx * Lx + ry * Ly + rz * Lz;
+    spec = spec > 0 && !R.night ? Math.pow(spec, 220) * 3 : 0;
+    cr = cr * (1 - refl) + skR * refl + spec * sunR;
+    cg = cg * (1 - refl) + skG * refl + spec * sunG;
+    cb = cb * (1 - refl) + skB * refl + spec * sunB;
+    gA = a + (1 - a) * refl * 0.85;
+  }
+
+  /** flat, texture-free "section" colour for terrain cut by the volume boundary → cr,cg,cb */
+  function sectionColor(p: number, x: number, y: number, z: number, hx: number, hy: number, hz: number, d: number): void {
+    const k = p * 4;
+    let r = pColor[k], g = pColor[k + 1], b = pColor[k + 2];
+    const l = 0.3 * r + 0.59 * g + 0.11 * b;
+    r = (0.35 * r + 0.65 * l) * 0.75 + 0.3 * 0.25;
+    g = (0.35 * g + 0.65 * l) * 0.75 + 0.28 * 0.25;
+    b = (0.35 * b + 0.65 * l) * 0.75 + 0.25 * 0.25;
+    // ground line: bold edge where the section meets the open surface above
+    const above = y + 1 < sy ? grid[((y + 1) * sz + z) * sx + x] : 0;
+    const openAbove = pTerrain[above] !== 1 || (clipAxis >= 0 && clipped(above, x, z));
+    const fy = hy - Math.floor(hy);
+    let k2 = 1;
+    if (openAbove && fy > 0.84) k2 = 0.38;
+    else {
+      // light 45° hatch
+      const u = d >= 4 ? hz : hx;
+      const hv = (u + hy) * 2;
+      if (hv - Math.floor(hv) < 0.12) k2 = 0.86;
+    }
+    const lum = 0.55 + 0.25 * Math.max(0, NX[d] * Lx + NY[d] * Ly + NZ[d] * Lz);
+    const sky = SKY_CURVE[15];
+    cr = r * k2 * (sunR * 0.45 * lum + ambR * 0.75 * sky);
+    cg = g * k2 * (sunG * 0.45 * lum + ambG * 0.75 * sky);
+    cb = b * k2 * (sunB * 0.45 * lum + ambB * 0.75 * sky);
   }
 
   function nearestDir(eo: number, d: number): number {

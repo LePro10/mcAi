@@ -49,7 +49,7 @@ export class WorldEdit {
   }
 
   private session(player: string, label: string, dimension: string): EditSession {
-    return new EditSession(this.deps.backend(), this.deps.registry(), { maxBlocks: this.deps.maxBlocks, dimension, actor: player, label });
+    return new EditSession(this.deps.backend(), this.deps.registry(), { maxBlocks: this.deps.maxBlocks, dimension, actor: player, label, support: 'off' }); // player tools: exact, no physics
   }
 
   private async commit(s: EditSession, label: string): Promise<string> {

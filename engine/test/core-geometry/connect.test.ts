@@ -5,6 +5,7 @@ import { expandMultiblock, expandMultiblocks, isMultiblock } from '../../src/cor
 import { blockId, parseBlockState } from '../../src/core/blockstate.ts';
 import type { Vec3 } from '../../src/core/types.ts';
 import { MapSink, key, reg } from './helpers.ts';
+import { loadFactor } from '../load.ts';
 
 const C = (s: string) => reg.canonical(s);
 
@@ -254,7 +255,7 @@ test('performance: 500k mixed blocks (20% connectable) solve in < 1.5 s', () => 
   const ch = solveConnections(get, pos, reg);
   const ms = performance.now() - t0;
   assert.ok(ch.length > 10_000);
-  assert.ok(ms < 1500, `${ms} ms`);
+  assert.ok(ms < 1500 * loadFactor(), `${ms} ms`);
   for (const [x, y, z, s] of ch) grid[(y * D + z) * W + x] = s;
   assert.equal(solveConnections(get, pos, reg).length, 0);
 });

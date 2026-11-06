@@ -6,6 +6,7 @@ import { join } from 'node:path';
 import { SimBackend, offlineUuid } from '../../src/sim/sim-backend.ts';
 import { Registry } from '../../src/core/registry.ts';
 import type { EditBatch } from '../../src/core/types.ts';
+import { loadFactor } from '../load.ts';
 
 const reg = Registry.loadDefault();
 const batch = (entries: [number, number, number, string][]): EditBatch => {
@@ -49,6 +50,22 @@ test('getBlocks layout (x fastest, then z, then y) matches point reads', async (
   }
   const above = await s.getBlocks({ min: [0, 318, 0], max: [1, 330, 1] });
   assert.ok(above.data.every((i) => i === 0), 'air above the build limit');
+});
+
+test('first read of never-generated chunks returns the generated terrain (not air)', async () => {
+  // regression: the id map was sized before generation added new world states
+  const s = new SimBackend({ seed: 77 });
+  const box = { min: [5000, 40, 5000] as [number, number, number], max: [5040, 90, 5040] as [number, number, number] };
+  const first = await s.getBlocks(box);
+  const second = await s.getBlocks(box);
+  const flat = (v: typeof first) => Array.from(v.data, (i) => v.palette[i]);
+  const a = flat(first), b = flat(second);
+  assert.ok(a.some((st) => st !== 'minecraft:air'), 'first read sees terrain');
+  assert.deepEqual(a, b);
+  const sx = 41, sz = 41;
+  for (const [x, y, z] of [[5000, 40, 5000], [5040, 90, 5040], [5020, 60, 5013]]) {
+    assert.equal(a[(y - 40) * sx * sz + (z - 5000) * sx + (x - 5000)], s.world.get(x, y, z));
+  }
 });
 
 test('setBlocks: previous states, unchanged, failures, events, undo', async () => {
@@ -161,7 +178,16 @@ test('performance: 1M setBlocks and 128³ getBlocks', async () => {
   await s.getBlocks({ min: [-64, 0, -64], max: [63, 127, 63] });
   const tGet = performance.now() - t;
   console.log(`# sim perf: setBlocks 1M ${tSet.toFixed(0)} ms, getBlocks 128^3 ${tGet.toFixed(0)} ms`);
-  // targets are 1.5 s / 1 s on an idle machine; generous bounds for loaded CI runners
-  assert.ok(tSet < 6000, `setBlocks took ${tSet} ms`);
-  assert.ok(tGet < 4000, `getBlocks took ${tGet} ms`);
+  // targets are 1.5 s / 1 s on an idle machine; generous bounds scaled by the current machine load
+  const k = loadFactor();
+  assert.ok(tSet < 6000 * k, `setBlocks took ${tSet} ms (load factor ${k.toFixed(1)})`);
+  assert.ok(tGet < 4000 * k, `getBlocks took ${tGet} ms (load factor ${k.toFixed(1)})`);
+});
+
+test('generated trees have natural (non-persistent) leaves', async () => {
+  const s = new SimBackend({ seed: 11 });
+  const v = await s.getBlocks({ min: [-60, 60, -60], max: [60, 110, 60] });
+  const leaves = v.palette.filter((p) => p.includes('_leaves'));
+  assert.ok(leaves.length > 0);
+  for (const l of leaves) assert.match(l, /persistent=false/);
 });

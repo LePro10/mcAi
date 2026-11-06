@@ -4,8 +4,10 @@ import { z } from 'zod';
 import type { BlockVolume, Box, Vec3 } from '../../core/types.ts';
 import { boxIntersect, boxVolume, volGet } from '../../core/volume.ts';
 import { blockId, isAir } from '../../core/blockstate.ts';
-import { summarize, surfaceMap, findDarkSpots } from '../../core/analysis.ts';
+import { summarize, surfaceMap, findDarkSpots, classifyDarkSpots } from '../../core/analysis.ts';
+import { findFloating } from '../../core/trees.ts';
 import { renderVolume, type RenderOptions } from '../../render/render.ts';
+import { builtMask, expandToComponents } from '../../render/expand.ts';
 import { analyzeColumns, terrainStats } from '../terrain.ts';
 import {
   BoxIn,
@@ -217,13 +219,14 @@ export const scanRegion = defineTool({
     "'layers' (ASCII map per y level; rows = z ascending (local: far→near), columns = x ascending; '.'=air, legend maps chars to blocks; boxes ≤ 64x64 footprint); " +
     "'surface' (top non-air block + height per column, ≤ 64x64); " +
     "'blocks' (explicit list of non-air blocks grouped by state, ≤ 4096 blocks — use for precise detail work); " +
-    "'dark' (air spots where hostile mobs could spawn: solid floor, 2 high, block light 0 — sky light ignored, so by default only spots with a roof above; roofedOnly:false for outdoors too) — use it to place lights inside buildings. " +
+    "'dark' (spots where hostile mobs could spawn: solid floor, 2 high, block light 0 — classified interior (roof + walls) / covered (eaves, canopy) / outdoor; roof-surface spots are skipped; include filters, default interior+covered) — use it to place lights; " +
+    "'floating' (small block clusters connected to nothing — junk, cut-off branches, stray blocks; with sizes and positions; leaf blobs within 6 of a log count as canopy). " +
     'Output is capped (maxChars); narrow the box or the y range if truncated. Coordinates in results use the requested space.',
   input: z.object({
     box: BoxIn,
     space: SpaceIn,
-    mode: z.enum(['summary', 'layers', 'surface', 'blocks', 'dark']).default('summary'),
-    roofedOnly: z.boolean().default(true).describe("dark mode: only spots with a block somewhere above them"),
+    mode: z.enum(['summary', 'layers', 'surface', 'blocks', 'dark', 'floating']).default('summary'),
+    include: z.array(z.enum(['interior', 'covered', 'outdoor'])).min(1).default(['interior', 'covered']).describe('dark mode: which spot classes to list'),
     yFrom: z.number().int().optional().describe('layers mode: first y (default box.min.y)'),
     yTo: z.number().int().optional().describe('layers mode: last y (default box.max.y)'),
     maxChars: z.number().int().min(500).max(40000).default(12000),
@@ -295,26 +298,54 @@ export const scanRegion = defineTool({
         return text.length > a.maxChars ? text.slice(0, a.maxChars) + '\n[truncated — use a smaller box]' : text;
       }
       case 'dark': {
-        let spots = findDarkSpots(vol, reg, { maxResults: 20000 });
-        if (a.roofedOnly) {
-          const sxz = sx * sz;
-          spots = spots.filter(([x, y, z]) => {
-            for (let yy = y + 2; yy <= box.max[1]; yy++) {
-              const st = vol.palette[vol.data[(yy - box.min[1]) * sxz + (z - box.min[2]) * sx + (x - box.min[0])]!]!;
-              if (!isAir(st)) return true;
-            }
-            return false;
-          });
+        // read with a margin: roofs/walls/lights just outside the box matter
+        const ext: Box = { min: [box.min[0] - 8, box.min[1] - 1, box.min[2] - 8], max: [box.max[0] + 8, box.max[1] + 16, box.max[2] + 8] };
+        const { vol: xv } = await readSpaceVolume(ctx, boxVolume(ext) <= 6_000_000 ? ext : box, a.space);
+        const inBox = ([x, y, z]: Vec3) => x >= box.min[0] && x <= box.max[0] && y >= box.min[1] && y <= box.max[1] && z >= box.min[2] && z <= box.max[2];
+        const all = findDarkSpots(xv, reg, { maxResults: 60000 }).filter(inBox);
+        const cls = classifyDarkSpots(xv, reg, all);
+        const want = new Set<string>(a.include);
+        const counts: Record<string, number> = { interior: 0, covered: 0, outdoor: 0, roof: 0 };
+        const groups: Record<string, Map<number, string[]>> = { interior: new Map(), covered: new Map(), outdoor: new Map() };
+        let listed = 0;
+        const order = ['interior', 'covered', 'outdoor'];
+        const byClass = order.map((c) => all.filter((_, i) => cls[i] === c));
+        all.forEach((_, i) => counts[cls[i]!]!++);
+        for (let k = 0; k < order.length; k++) {
+          const c = order[k]!;
+          if (!want.has(c)) continue;
+          for (const [x, y, z] of byClass[k]!) {
+            if (listed >= 600) break;
+            let l = groups[c]!.get(y);
+            if (!l) groups[c]!.set(y, (l = []));
+            l.push(`${x},${z}`);
+            listed++;
+          }
         }
-        if (!spots.length) return `${head}\nno dark spawnable spots${a.roofedOnly ? ' under a roof' : ''} — lighting is fine (light sources outside the box are ignored)`;
-        const byY = new Map<number, string[]>();
-        for (const [x, y, z] of spots.slice(0, 600)) {
-          let l = byY.get(y);
-          if (!l) byY.set(y, (l = []));
-          l.push(`${x},${z}`);
+        const total = order.filter((c) => want.has(c)).reduce((n, c) => n + counts[c]!, 0);
+        const tally = `interior ${counts.interior}, covered ${counts.covered}, outdoor ${counts.outdoor}, roof-surface ${counts.roof} (skipped)`;
+        if (!total) return `${head}\nno dark spawnable spots of class ${a.include.join('/')} — ${tally}. Lights within 8 blocks outside the box are considered.`;
+        let text = `${head}\n${total} dark spawnable spots (${tally})${total > listed ? `, first ${listed} listed` : ''}. A torch/lantern makes ~6 blocks around it safe; place lights until nothing interior is listed.\n`;
+        for (const c of order) {
+          if (!want.has(c) || !groups[c]!.size) continue;
+          text += `${c.toUpperCase()}:\n`;
+          for (const [y, ps] of [...groups[c]!].sort((p, q) => p[0] - q[0])) text += `  y=${y} (x,z): ${ps.join(' ')}\n`;
         }
-        let text = `${head}\n${spots.length} dark spawnable spots${a.roofedOnly ? ' under a roof' : ''}${spots.length > 600 ? ' (first 600 listed)' : ''}. Light level from a torch/lantern reaches ~7 blocks safely; place lights so no spot is listed.\n`;
-        for (const [y, ps] of [...byY].sort((p, q) => p[0] - q[0])) text += `y=${y} (x,z): ${ps.join(' ')}\n`;
+        return text.length > a.maxChars ? text.slice(0, a.maxChars) + '\n[truncated]' : text;
+      }
+      case 'floating': {
+        const ext: Box = { min: [box.min[0] - 6, box.min[1] - 4, box.min[2] - 6], max: [box.max[0] + 6, box.max[1] + 2, box.max[2] + 6] };
+        const { vol: xv } = await readSpaceVolume(ctx, boxVolume(ext) <= 6_000_000 ? ext : box, a.space);
+        const cl = findFloating(xv, reg, { within: box });
+        if (!cl.length) return `${head}\nno floating clusters — everything connects to the ground (or reaches past the box)`;
+        const big = cl.filter((c) => c.size > 64);
+        const small = cl.filter((c) => c.size <= 64);
+        const fmtC = (c: (typeof cl)[number]) => `${c.size} × ${short(c.block)} at ${fmtV(c.sample)} (bounds ${fmtV(c.bounds.min)}..${fmtV(c.bounds.max)})`;
+        let text = `${head}\n${cl.length} floating cluster(s) (6-connected, touching nothing): ${small.length} small (≤ 64 blocks), ${big.length} large.\n`;
+        for (const c of small.slice(0, 60)) text += `  ${fmtC(c)}\n`;
+        if (small.length > 60) text += `  … ${small.length - 60} more small clusters\n`;
+        if (big.length) text += `large floating masses (intended? e.g. floating island, or support missing):\n${big.slice(-10).map((c) => `  ${fmtC(c)}`).join('\n')}\n`;
+        text += `Fix: delete junk with clear (mode all / tree_debris), or connect it (posts, chains, brackets).`;
         return text.length > a.maxChars ? text.slice(0, a.maxChars) + '\n[truncated]' : text;
       }
       case 'blocks': {
@@ -356,6 +387,20 @@ export function worldView(view: string, turns: number): string {
   return view;
 }
 
+/**
+ * World box of this job's built blocks (26-connected components) that the requested box cuts through,
+ * grown sideways and downward only (cutting off what is above keeps interiors visible). Null if nothing.
+ */
+export function renderExpansion(ctx: ToolCtx, wbox: Box, maxExtra = 24): Box | null {
+  const ids = new Set(ctx.job.undoIds);
+  const recs = ctx.env.history.list(ctx.job.player).filter((r) => ids.has(r.id));
+  if (!recs.length) return null;
+  const built = builtMask(recs.map((r) => r.after));
+  if (!built.size) return null;
+  const limit: Box = { min: [-Infinity, -Infinity, -Infinity] as unknown as Vec3, max: [Infinity, wbox.max[1], Infinity] as unknown as Vec3 };
+  return expandToComponents(wbox, built, { maxExtra, limit });
+}
+
 const ViewIn = z.enum(['iso_ne', 'iso_nw', 'iso_se', 'iso_sw', 'front', 'back', 'left', 'right', 'top']);
 
 export const renderView = defineTool({
@@ -367,6 +412,7 @@ export const renderView = defineTool({
     "Views: iso_se/iso_sw/iso_ne/iso_nw (isometric from that corner), front/back/left/right (elevations), top (plan). " +
     "With space:'local' (default) views are relative to the build: 'front' looks at the +z facade (what the player sees), 'iso_se' = front-right corner. " +
     'Pass up to 4 views for a contact sheet (one image each). Default box = everything you built so far in this job (+ margin), else the allowed box. ' +
+    'Terrain cut by the render box is drawn as a flat grey section (not part of the world); elevations cut away natural terrain in front of the box. ' +
     'Use it after each major step to check proportions, gaps and style; ~1k tokens per 800x600 image.',
   input: z.object({
     box: BoxIn.optional().describe('region to render (default: your edits so far)'),
@@ -378,12 +424,16 @@ export const renderView = defineTool({
     zoom: z.number().min(0.25).max(8).optional(),
     highlight: BoxIn.optional().describe('box to outline in the image (same space)'),
     margin: z.number().int().min(0).max(32).default(4).describe('extra blocks of surroundings around the box'),
+    expand: z.boolean().default(true).describe('also load whole parts of your build that the box cuts through (sideways/down, ≤24 blocks; camera still frames box)'),
   }),
   async run(a, ctx) {
     const { job, env } = ctx;
     let wbox: Box;
-    if (a.box) wbox = toWorldBox(ctx, normBoxIn(a.box), a.space);
-    else {
+    let grown: Box | null = null;
+    if (a.box) {
+      wbox = toWorldBox(ctx, normBoxIn(a.box), a.space);
+      if (a.expand) grown = renderExpansion(ctx, wbox);
+    } else {
       // default: what this job built so far (else the whole allowed box)
       const eb = jobEditBounds(ctx);
       wbox = eb ? (boxIntersect(eb, job.allowedBox) ?? eb) : job.allowedBox;
@@ -391,6 +441,11 @@ export const renderView = defineTool({
     const m = a.margin;
     const info = await env.backend().info();
     let rbox: Box = { min: [wbox.min[0] - m, Math.max(info.minY, wbox.min[1] - Math.max(2, Math.floor(m / 2))), wbox.min[2] - m], max: [wbox.max[0] + m, Math.min(info.maxY, wbox.max[1] + 2), wbox.max[2] + m] };
+    if (grown) {
+      const big: Box = { min: [Math.min(rbox.min[0], grown.min[0] - 1), Math.max(info.minY, Math.min(rbox.min[1], grown.min[1] - 1)), Math.min(rbox.min[2], grown.min[2] - 1)], max: [Math.max(rbox.max[0], grown.max[0] + 1), rbox.max[1], Math.max(rbox.max[2], grown.max[2] + 1)] };
+      if (boxVolume(big) <= MAX_RENDER_VOLUME) rbox = big;
+      else grown = null;
+    }
     if (boxVolume(rbox) > MAX_RENDER_VOLUME) throw new ToolError(`render box ${fmtBox(rbox)} is too large (max ${MAX_RENDER_VOLUME.toLocaleString('en')} blocks). Pass a smaller box.`);
     const vol = await env.backend().getBlocks(rbox, job.dimension);
     const assets = await env.assets();
@@ -412,7 +467,8 @@ export const renderView = defineTool({
       images.push({ data: png.toString('base64'), mimeType: 'image/png' });
     }
     if (job.state === 'building') env.jobs.update(job, { state: 'reviewing' });
-    return { text: `rendered ${a.views.join(', ')} of world ${fmtBox(wbox)}${assets ? '' : ' (flat colors: textures unavailable)'}`, images };
+    const grew = grown && (grown.min.some((v, i) => v < wbox.min[i]!) || grown.max.some((v, i) => v > wbox.max[i]!));
+    return { text: `rendered ${a.views.join(', ')} of world ${fmtBox(wbox)}${grew ? ` (+ connected build parts up to ${fmtBox(grown!)})` : ''}${assets ? '' : ' (flat colors: textures unavailable)'}`, images };
   },
 });
 

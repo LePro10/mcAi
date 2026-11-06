@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import * as S from '../../src/core/shapes.ts';
 import type { Vec3 } from '../../src/core/types.ts';
 import { collect, key } from './helpers.ts';
+import { loadFactor } from '../load.ts';
 
 /**
  * Watertightness: flood-fill (6-connectivity) the complement of the shell starting outside the
@@ -315,5 +316,5 @@ test('performance: ~1.1M-block solid sphere and hollow r=64 within a few seconds
   S.ellipsoid({ center: [0, 0, 0], radius: 40, hollow: true, thickness: 3 }, () => { n++; });
   const ms = performance.now() - t0;
   assert.ok(n > 1_100_000);
-  assert.ok(ms < 4000, `${ms} ms`);
+  assert.ok(ms < 4000 * loadFactor(), `${ms} ms`);
 });

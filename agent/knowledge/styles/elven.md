@@ -40,7 +40,7 @@ Mixes: stone `70%calcite,20%smooth_quartz,10%diorite` · giant trunk `60%oak_woo
 5. Gold sparingly: one `gold_block` keystone per arch or a thin band at a floor line — never large areas.
 
 ## Roof recipe
-- Conical/spire roofs on round towers: radius = tower radius + 1 overhang, height ≥ 2× radius, with a flared eave (first ring of slabs at the wall line, then stairs). Tip: `end_rod` or `lightning_rod` (facing=up) finial.
+- Conical/spire roofs on round towers: roof op style cone on the tower box (overhang 1, flare for the flared eave, soffit, finial `end_rod`); height ≥ 2× radius (pitch ≥ 2).
 - Curved "leaf" roofs on halls: ogee/bell profile — shallow at the eave, steep at the ridge; build in `waxed_oxidized_cut_copper_stairs`/`waxed_oxidized_cut_copper_slab`, stairs facing toward the ridge.
 - Eave underside: `quartz_stairs[half=top]` facing toward the wall; or `birch_trapdoor` soffits.
 - Ridge: `waxed_oxidized_cut_copper_slab` and periodic `end_rod` ridge spikes.
@@ -53,7 +53,7 @@ Mixes: stone `70%calcite,20%smooth_quartz,10%diorite` · giant trunk `60%oak_woo
 ## Signature details
 - Spiral staircase around a giant trunk: 3-wide `birch_stairs`/`birch_slab` ring (use run_script spiral), `birch_fence` railing on the outer edge, `lantern[hanging=true]` every quarter turn.
 - Hanging gardens: `cave_vines[berries=true]`, `vine`, `spore_blossom` under every platform and bridge — never a bare underside.
-- Arched bridge: 3 wide `birch_slab` deck on a `quartz_block` arch, `birch_fence` + `end_rod` posts, `vine` dangling.
+- Arched bridge: bridge op (profile arch, deck `birch_planks`, post `birch_fence`, lantern `end_rod`) on a `quartz_block` arch, `vine` dangling from solid faces only.
 - Moonwell: round pool of `water` ringed by `quartz_slab`, `sea_lantern` under `lily_pad`s, `amethyst_cluster` crystals at the rim.
 - Library alcove: `chiseled_bookshelf` walls, `lectern`, `candle[lit=true]`, `enchanting_table`.
 

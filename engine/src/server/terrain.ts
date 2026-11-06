@@ -5,6 +5,7 @@ import type { Box, WorldBackend } from '../core/types.ts';
 import type { Registry } from '../core/registry.ts';
 import type { EditSession } from '../core/session.ts';
 import { blockId, isAir } from '../core/blockstate.ts';
+import { holdsWater, isFluidState, removedState } from '../core/support.ts';
 
 export interface Columns {
   x0: number;
@@ -51,9 +52,11 @@ export function isGround(state: string, reg: Registry): boolean {
 export function isVegetation(state: string, reg: Registry): boolean {
   if (isAir(state)) return false;
   const id = blockId(state);
+  // fluids carry plant-ish tags (water is 'replaceable_by_trees') — they are never vegetation
+  if (id === 'minecraft:water' || id === 'minecraft:lava' || id === 'minecraft:bubble_column') return false;
   if (reg.hasTag(id, 'minecraft:leaves') || reg.hasTag(id, 'minecraft:logs')) return true;
   if (reg.hasTag(id, 'minecraft:flowers') || reg.hasTag(id, 'minecraft:saplings') || reg.hasTag(id, 'minecraft:replaceable_by_trees')) return true;
-  return /(^|_)(grass|fern|bush|flower|vine|roots|lichen|mushroom|dead_bush|sugar_cane|bamboo|kelp|seagrass|lily_pad|petals|cactus|berry|azalea|dripleaf|moss_carpet|snow)$/.test(id.slice(10)) || id === 'minecraft:snow';
+  return /(^|_)(grass|fern|bush|flower|vine|vines|roots|lichen|mushroom|dead_bush|sugar_cane|bamboo|kelp|seagrass|lily_pad|petals|cactus|berry|azalea|dripleaf|moss_carpet|snow|plant|propagule|hanging_moss|litter|wildflowers|spore_blossom|sapling)$/.test(id.slice(10)) || id === 'minecraft:snow';
 }
 
 /** Default replacement material below a top block. */
@@ -163,6 +166,9 @@ export interface TerraformParams {
   top?: string;
   fill?: string;
   seed?: number;
+  /** flatten: build retaining walls of this block/pattern along the pad edge (fill side: down to the
+   *  natural ground outside; cut side: lining the cut face). Disables the slope ring unless blend is given. */
+  retainingWall?: (x: number, y: number, z: number) => string | null;
 }
 
 function smoothstep(t: number): number {
@@ -242,6 +248,9 @@ export function terraform(
     for (let z = p.area.min[2]; z <= p.area.max[2]; z++) for (let x = p.area.min[0]; x <= p.area.max[0]; x++) fn(x, z, idx(x, z));
   };
   const inFoot = (x: number, z: number) => x >= f.min[0] && x <= f.max[0] && z >= f.min[2] && z <= f.max[2];
+  /** column index → [y0, y1] of retaining wall blocks */
+  let wallCells: Map<number, [number, number]> | null = null;
+  let underwater = 0;
 
   switch (p.action) {
     case 'flatten': {
@@ -255,7 +264,12 @@ export function terraform(
         target = hs.length ? hs[Math.floor(hs.length / 2)]! : p.allowed.min[1];
       }
       res.targetY = target;
-      const blend = p.blend ?? 4;
+      const wall = p.retainingWall;
+      const blend = p.blend ?? (wall ? 0 : 4);
+      // the slope ring widens where the height difference needs it (≈ 1 block rise per 1.4 columns),
+      // up to the prefetched ring; smoothstep falloff reaches the natural height exactly at the ring edge
+      const maxRing = Math.max(blend, Math.min(p.area.max[0] - f.max[0], f.min[0] - p.area.min[0], p.area.max[2] - f.max[2], f.min[2] - p.area.min[2], 24));
+      let widest = 0;
       each((x, z, i) => {
         if (Number.isNaN(G[i]!)) {
           if (inFoot(x, z)) T[i] = target!;
@@ -264,12 +278,41 @@ export function terraform(
         if (inFoot(x, z)) T[i] = target!;
         else if (blend > 0) {
           const dist = outsideDist(f, x, z);
-          if (dist <= blend) {
-            const t = smoothstep(dist / (blend + 1));
+          const need = Math.ceil(Math.abs(G[i]! - target!) * 1.4);
+          const W = Math.min(Math.max(blend, need), Math.max(blend, maxRing));
+          if (dist < W) {
+            const t = smoothstep(dist / W);
             T[i] = target! + (G[i]! - target!) * t;
+            if (W > widest) widest = W;
           }
         }
       });
+      if (widest > blend) warnings.push(`slope ring widened to ${widest} blocks where the ground differs a lot from the pad`);
+      if (wall) {
+        // retaining walls: fill side = pad edge columns down to the outside ground (+1 footing);
+        // cut side = outside columns whose ground is above the pad, lined from pad level up
+        const walls = new Map<number, [number, number]>();
+        const addWall = (i: number, y0: number, y1: number) => {
+          const e = walls.get(i);
+          walls.set(i, e ? [Math.min(e[0], y0), Math.max(e[1], y1)] : [y0, y1]);
+        };
+        each((x, z, i) => {
+          if (!inFoot(x, z)) return;
+          let lowest = Infinity;
+          for (let dz = -1; dz <= 1; dz++)
+            for (let dx = -1; dx <= 1; dx++) {
+              const nx = x + dx, nz = z + dz;
+              if ((dx === 0 && dz === 0) || inFoot(nx, nz) || nx < p.area.min[0] || nx > p.area.max[0] || nz < p.area.min[2] || nz > p.area.max[2]) continue;
+              const j = idx(nx, nz);
+              const tn = Math.round(T[j]!);
+              if (Number.isNaN(tn)) continue;
+              if (tn < lowest) lowest = tn;
+              if (tn > target!) addWall(j, target! + 1, tn);
+            }
+          if (lowest < target! - 0) addWall(i, lowest - 1, target!);
+        });
+        wallCells = walls;
+      }
       break;
     }
     case 'smooth': {
@@ -339,7 +382,9 @@ export function terraform(
       res.raised++;
       changed = true;
     } else if (t < g) {
-      for (let y = t + 1; y <= Math.min(g, yMax); y++) set(x, y, z, 'minecraft:air');
+      // dredging under water: the removed ground becomes water, never an air pocket
+      const fillWith = g + 1 <= yMax && holdsWater(get(x, g + 1, z)) ? 'minecraft:water' : 'minecraft:air';
+      for (let y = t + 1; y <= Math.min(g, yMax); y++) set(x, y, z, fillWith);
       if (t >= yMin) set(x, t, z, top);
       res.lowered++;
       changed = true;
@@ -350,13 +395,32 @@ export function terraform(
       for (let y = Math.min(t, g) + 1; y <= Math.min(yMax, surface + 2); y++) {
         if (y <= t) continue;
         const s = get(x, y, z);
-        if (!isAir(s) && (isVegetation(s, reg) || isWater(s)) && !reg.hasTag(blockId(s), 'minecraft:logs')) set(x, y, z, 'minecraft:air');
+        // plants go (waterlogged/underwater ones leave water); water itself stays
+        if (!isAir(s) && isVegetation(s, reg) && !reg.hasTag(blockId(s), 'minecraft:logs')) set(x, y, z, removedState(s));
       }
     }
     if (p.action === 'flatten' && (p.clearAbove ?? true) && inFoot(x, z)) {
+      let wet = false;
       for (let y = t + 1; y <= yMax; y++) {
-        if (!isAir(get(x, y, z))) set(x, y, z, 'minecraft:air');
+        const s = get(x, y, z);
+        if (isAir(s)) continue;
+        if (isFluidState(s)) {
+          wet = true;
+          continue; // never drain rivers/lakes — use clear mode 'fluids' for that
+        }
+        const r = removedState(s);
+        if (r !== 'minecraft:air') wet = true;
+        set(x, y, z, r);
       }
+      if (wet) underwater++;
+    }
+    const wc = wallCells?.get(i);
+    if (wc && p.retainingWall) {
+      for (let y = Math.max(yMin, wc[0]); y <= Math.min(yMax, wc[1]); y++) {
+        const st = p.retainingWall(x, y, z);
+        if (st) set(x, y, z, st);
+      }
+      changed = true;
     }
     if (p.action === 'naturalize_edges') {
       const o = outsideDist(f, x, z);
@@ -375,6 +439,8 @@ export function terraform(
     if (changed) res.columns++;
   });
   if (G.some((g) => Number.isNaN(g))) warnings.push('some columns had no ground in range (void/deep water); they were filled up to the target height');
+  if (underwater) warnings.push(`${underwater} pad columns are below the water surface — the water was kept (raise y, or clear mode 'fluids' first if you really want it dry)`);
+  if (wallCells) warnings.push(`retaining walls on ${wallCells.size} columns`);
   return res;
 }
 

@@ -5,6 +5,9 @@ import path from 'node:path';
 import { z } from 'zod';
 import { paths } from '../config.ts';
 import { SpaceIn, ToolError, defineTool, frameOf, type ToolCtx, type ToolDef } from './common.ts';
+import type { Vec3 } from '../../core/types.ts';
+import { blockId, isAir } from '../../core/blockstate.ts';
+import { boxContains, volIndex } from '../../core/volume.ts';
 import { checkCommand, localizeCommand } from '../commands.ts';
 
 const SAY_MAX = 300;
@@ -174,7 +177,7 @@ export const commandTool = defineTool({
     'Run one Minecraft command from a small allowlist, for things blocks cannot do: ' +
     "summon decorative/ambient entities (armor_stand, item_frame, glow_item_frame, painting, block_display, item_display, text_display, villager, cat, horse, ... — NoAI etc. allowed), " +
     'fillbiome, particle, playsound (plus time/weather if the owner enabled them). Coordinates must be absolute WORLD coordinates inside the allowed build box (convert local with get_context frame info). ' +
-    'No selectors other than @s/@p; no execute/op/give/kill/tp. Returns the command output. Not undoable (entities stay).',
+    'No selectors other than @s/@p; no execute/op/give/kill/tp. Returns the command output (+ a warning with the nearest free spot if a summoned mob would be stuck inside blocks). Not undoable (entities stay).',
   input: z.object({
     command: z.string().min(2).max(2000).describe("without leading '/', e.g. 'summon armor_stand 3 1 -5 {ShowArms:1b}'"),
     space: SpaceIn,
@@ -185,11 +188,76 @@ export const commandTool = defineTool({
     if (a.space === 'local') cmd = localizeCommand(cmd, frameOf(ctx));
     const err = checkCommand(cmd, { allowedBox: job.allowedBox, extra: env.config.commandAllowlist });
     if (err) throw new ToolError(err);
+    let warn: string | null = null;
+    try {
+      warn = await summonCheck(ctx, cmd);
+    } catch {
+      warn = null;
+    }
     const r = await env.backend().runCommand(cmd);
     job.log('command', { command: cmd, ok: r.ok, output: r.output.slice(0, 500) });
-    if (!r.ok) throw new ToolError(`command failed: ${r.output || '(no output)'}`);
-    return r.output || 'ok';
+    if (!r.ok) throw new ToolError(`command failed: ${r.output || '(no output)'}${warn ? `\n${warn}` : ''}`);
+    return `${r.output || 'ok'}${warn ? `\n${warn}` : ''}`;
   },
 });
+
+/** entities without collision that live inside/at block faces */
+const NO_COLLISION = new Set(['item_frame', 'glow_item_frame', 'painting', 'block_display', 'item_display', 'text_display', 'interaction', 'leash_knot', 'marker']);
+const SMALL = new Set(['cat', 'chicken', 'rabbit', 'fox', 'parrot', 'bee', 'frog', 'axolotl', 'turtle', 'ocelot', 'allay', 'tropical_fish', 'cod', 'salmon', 'squid', 'glow_squid', 'armadillo', 'copper_golem', 'pig', 'wolf', 'sheep', 'goat']);
+const TALL: Record<string, number> = { iron_golem: 3, happy_ghast: 4, camel: 3, sniffer: 2, polar_bear: 2 };
+const SWIMMERS = new Set(['tropical_fish', 'cod', 'salmon', 'dolphin', 'squid', 'glow_squid', 'axolotl', 'turtle']);
+const FLYERS = new Set(['parrot', 'bee', 'allay', 'happy_ghast']);
+
+/** Warn when a summoned entity would sit inside solid blocks; suggest the nearest free spot. */
+export async function summonCheck(ctx: ToolCtx, cmd: string): Promise<string | null> {
+  const t = cmd.trim().split(/\s+/);
+  if ((t[0] ?? '').toLowerCase() !== 'summon') return null;
+  const ent = (t[1] ?? '').replace(/^minecraft:/, '').toLowerCase();
+  if (NO_COLLISION.has(ent)) return null;
+  const [x, y, z] = [Number(t[2]), Number(t[3]), Number(t[4])];
+  if (![x, y, z].every(Number.isFinite)) return null;
+  const h = TALL[ent] ?? (SMALL.has(ent) ? 1 : 2);
+  const bx = Math.floor(x), by = Math.floor(y), bz = Math.floor(z);
+  const R = 4;
+  const box = { min: [bx - R, by - R - 1, bz - R] as Vec3, max: [bx + R, by + R + h, bz + R] as Vec3 };
+  const reg = ctx.env.registry();
+  const vol = await ctx.env.backend().getBlocks(box, ctx.job.dimension);
+  const solidPal = vol.palette.map((st) => {
+    if (isAir(st)) return false;
+    const id = blockId(st);
+    return reg.isFullSolid(st) || reg.hasTag(id, 'minecraft:fences') || reg.hasTag(id, 'minecraft:walls') || id.endsWith('_slab') && /type=(double|top)/.test(st);
+  });
+  const waterPal = vol.palette.map((st) => /^minecraft:water/.test(st) || /waterlogged=true/.test(st));
+  const solid = (xx: number, yy: number, zz: number) => boxContains(box, xx, yy, zz) && solidPal[vol.data[volIndex(box, xx, yy, zz)]!]!;
+  const water = (xx: number, yy: number, zz: number) => boxContains(box, xx, yy, zz) && waterPal[vol.data[volIndex(box, xx, yy, zz)]!]!;
+  const free = (xx: number, yy: number, zz: number) => {
+    for (let k = 0; k < h; k++) if (solid(xx, yy + k, zz)) return false;
+    return true;
+  };
+  let hit: string | null = null;
+  for (let k = 0; k < h; k++) if (solid(bx, by + k, bz)) {
+    hit = vol.palette[vol.data[volIndex(box, bx, by + k, bz)]!]!;
+    break;
+  }
+  if (!hit) return null;
+  const standing = !SWIMMERS.has(ent) && !FLYERS.has(ent);
+  let best: Vec3 | null = null, bestD = Infinity;
+  for (let dy = -R; dy <= R; dy++)
+    for (let dz = -R; dz <= R; dz++)
+      for (let dx = -R; dx <= R; dx++) {
+        const px = bx + dx, py = by + dy, pz = bz + dz;
+        if (!free(px, py, pz)) continue;
+        if (standing && !solid(px, py - 1, pz)) continue;
+        if (SWIMMERS.has(ent) && !water(px, py, pz)) continue;
+        const d = dx * dx + dy * dy * 1.5 + dz * dz;
+        if (d < bestD) {
+          bestD = d;
+          best = [px, py, pz];
+        }
+      }
+  const f = frameOf(ctx);
+  const sug = best ? ` Nearest free spot: ${best[0] + 0.5} ${best[1]} ${best[2] + 0.5} (world; local ${f.toLocal(best).join(',')}).` : ' No free spot within 4 blocks.';
+  return `WARNING: the ${ent} at ${x} ${y} ${z} is inside ${hit.replace(/^minecraft:/, '').replace(/\[.*$/, '')} — it will be stuck or suffocate.${sug}`;
+}
 
 export const controlTools: ToolDef[] = [undoTool, sayTool, progressTool, askPlayer, finishTool, commandTool];

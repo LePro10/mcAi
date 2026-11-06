@@ -3,7 +3,7 @@
 import type { Box, Vec3, BlockVolume } from './types.ts';
 import type { Registry } from './registry.ts';
 import { AIR, blockId, isAir } from './blockstate.ts';
-import { boxSize, volIndex } from './volume.ts';
+import { boxContains, boxSize, volIndex } from './volume.ts';
 
 function airMask(v: BlockVolume): Uint8Array {
   const m = new Uint8Array(v.palette.length);
@@ -381,4 +381,61 @@ export function diffVolumes(a: BlockVolume, b: BlockVolume, opts: { maxChanges?:
         else res.truncated = true;
       }
   return res;
+}
+
+// ------------------------------------------------------------------ dark spot classes
+
+export type DarkClass = 'interior' | 'covered' | 'outdoor' | 'roof';
+
+/**
+ * Classify dark spots: `interior` = a non-leaf roof within `roofMax` above and walls in ≥ 3 of
+ * the 4 horizontal directions within `wallMax`; `covered` = something above (eaves, canopy,
+ * bridge) but open; `outdoor` = open sky; `roof` = standing on a roof surface (≥ 3 stairs/slabs
+ * around the spot) and not interior — not meant to be walked on.
+ */
+export function classifyDarkSpots(v: BlockVolume, reg: Registry, spots: Vec3[], opts: { roofMax?: number; wallMax?: number } = {}): DarkClass[] {
+  const roofMax = opts.roofMax ?? 16, wallMax = opts.wallMax ?? 12;
+  const kind = new Uint8Array(v.palette.length); // 0 air/soft, 1 leaves, 2 stairs/slab, 3 solid
+  v.palette.forEach((s, i) => {
+    if (isAir(s)) return;
+    const id = blockId(s);
+    if (reg.hasTag(id, 'minecraft:leaves')) kind[i] = 1;
+    else if (id.endsWith('_stairs') || id.endsWith('_slab')) kind[i] = 2;
+    else if (reg.isFullSolid(s) || reg.hasTag(id, 'minecraft:blocks_motion')) kind[i] = 3;
+  });
+  const at = (x: number, y: number, z: number): number => (boxContains(v.box, x, y, z) ? kind[v.data[volIndex(v.box, x, y, z)]!]! : 0);
+  const out: DarkClass[] = [];
+  for (const [x, y, z] of spots) {
+    let above = 0;
+    for (let yy = y + 2; yy <= y + roofMax; yy++) {
+      const k = at(x, yy, z);
+      if (k) {
+        above = k;
+        break;
+      }
+    }
+    let walls = 0;
+    for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]] as const) {
+      for (let d = 1; d <= wallMax; d++) {
+        const k = Math.max(at(x + dx * d, y, z + dz * d), at(x + dx * d, y + 1, z + dz * d));
+        if (k >= 2) {
+          walls++;
+          break;
+        }
+      }
+    }
+    if (above && above !== 1 && walls >= 3) {
+      out.push('interior');
+      continue;
+    }
+    let tiles = 0;
+    for (let dz = -1; dz <= 1; dz++)
+      for (let dx = -1; dx <= 1; dx++) {
+        if (!dx && !dz) continue;
+        if (at(x + dx, y, z + dz) === 2 || at(x + dx, y - 1, z + dz) === 2) tiles++;
+      }
+    if (tiles >= 3) out.push('roof');
+    else out.push(above ? 'covered' : 'outdoor');
+  }
+  return out;
 }

@@ -4,7 +4,7 @@ import type { BlockVolume, Box } from '../core/types.ts';
 import type { AssetStore } from '../assets/assets.ts';
 import { compileScene, sceneBoundsBox, type SceneData } from './scene.ts';
 import { createTracer, type RenderParams } from './trace.ts';
-import { makeCamera, makeLighting, project, type Camera, type ViewName } from './camera.ts';
+import { makeCamera, makeLighting, project, VIEW_DIR, type Camera, type ViewName } from './camera.ts';
 import { renderParallel } from './pool.ts';
 import { Img, type RGBA } from './image.ts';
 
@@ -42,6 +42,11 @@ export interface RenderOptions {
   parallel?: boolean;
   /** label text override (shown when labels=true) */
   title?: string;
+  /** natural terrain cut by the volume boundary is drawn flat in a neutral section style (default true) */
+  section?: boolean;
+  /** elevation views (front/back/left/right) with a focus box: natural terrain/plants/water in front of the
+   *  focus box's near face are cut away so the facade is seen unobstructed (default true) */
+  cutaway?: boolean;
 }
 
 export const VIEW_LABEL: Record<string, string> = {
@@ -72,6 +77,8 @@ async function trace(prep: Prepared, cam: Camera, opts: RenderOptions): Promise<
     ground: opts.ground ?? true, groundY: s.oy,
     groundBox: [Math.min(fx0, s.ox), Math.min(fz0, s.oz), Math.max(fx1, s.ox + s.sx), Math.max(fz1, s.oz + s.sz)],
     fogDepth: opts.fog === false ? 0 : Math.max(12, diag * 2.5), fogStart: fogStart(cam, prep.frame), fogCol: L.fogCol, night: L.night,
+    section: opts.section ?? true,
+    ...cutawayParams(opts, s),
   };
   const fb = new Float32Array(new SharedArrayBuffer(cam.W * cam.H * 3 * 4));
   let done = false;
@@ -81,6 +88,17 @@ async function trace(prep: Prepared, cam: Camera, opts: RenderOptions): Promise<
   const e = L.exposure;
   if (e !== 1) for (let i = 0; i < fb.length; i++) fb[i] *= e;
   return fb;
+}
+
+/** elevation cutaway plane (grid coords) for front/back/left/right views with a focus box */
+export function cutawayParams(opts: RenderOptions, s: { ox: number; oz: number }): { clipAxis: number; clipSign: number; clipAt: number } | object {
+  const view = opts.view ?? 'iso_se';
+  const f = opts.focus;
+  if (!f || opts.cutaway === false || !(view === 'front' || view === 'back' || view === 'left' || view === 'right')) return {};
+  if (opts.pitch !== undefined && Math.abs(opts.pitch) > 35) return {};
+  const [dx, dz] = VIEW_DIR[view]!;
+  if (dx !== 0) return { clipAxis: 0, clipSign: dx, clipAt: (dx > 0 ? f.max[0] : f.min[0]) - s.ox };
+  return { clipAxis: 2, clipSign: dz, clipAt: (dz > 0 ? f.max[2] : f.min[2]) - s.oz };
 }
 
 /** ray parameter of the frame corner nearest to the camera */

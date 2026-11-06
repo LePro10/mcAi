@@ -6,7 +6,7 @@ import { parseBlockState, AIR } from '../../src/core/blockstate.ts';
 import type { Vec3 } from '../../src/core/types.ts';
 import { key, reg } from './helpers.ts';
 
-const STYLES: RoofStyle[] = ['gable', 'hip', 'pyramid', 'shed', 'dome', 'spire', 'mansard', 'gambrel', 'flat'];
+const STYLES: RoofStyle[] = ['gable', 'hip', 'pyramid', 'shed', 'dome', 'spire', 'mansard', 'gambrel', 'flat', 'cone', 'swept_hip'];
 
 function build(p: RoofParams): Map<string, string> {
   const m = new Map<string, string>();
@@ -51,7 +51,7 @@ test('roof invariants for every style, many sizes, overhangs and pitches', () =>
             for (const s of m.values()) assert.equal(reg.canonical(s), s, label);
             // every footprint column is covered (no hole from above)
             const cols = columns(m);
-            if (style !== 'dome')
+            if (style !== 'dome' && style !== 'cone')
               for (let x = 0; x < w; x++) for (let z = 0; z < d; z++) assert.ok(cols.has(`${x},${z}`), `${label}: hole at ${x},${z}`);
             // no see-through gaps between neighbouring columns
             for (const [ck, c] of cols) {

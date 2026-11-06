@@ -41,7 +41,8 @@ Mixes: tatami floor `70%bamboo_mosaic,30%stripped_bamboo_block` · garden path `
 
 ## Roof recipe
 - Irimoya (hip-and-gable) or hip roof, pitch shallower at the eave and steeper toward the ridge (curved profile: slabs → stairs → stairs+full blocks).
-- Upturned corners: along the last 3–4 eave blocks near each corner, raise the eave line by 1 then 2 (slab steps), ending with a `deepslate_tile_stairs` corner tip; use run_script for clean curves.
+- Built in: roof op style swept_hip (concave profile, lift for upturned corners, fascia, brackets, finial); stack pagoda tiers with skipBox = the next tier's wall footprint.
+- Upturned corners by hand (other styles): along the last 3–4 eave blocks near each corner, raise the eave line by 1 then 2 (slab steps), ending with a `deepslate_tile_stairs` corner tip.
 - Ridge: thick ridge of `deepslate_tile_slab` (type=double/full) with `deepslate_tile_stairs` end ornaments, or `polished_blackstone_wall` caps.
 - Eave fascia: `dark_oak_trapdoor` (closed, half=top) on the eave edge; rafter tails `dark_oak_stairs[half=top]` facing toward the wall underneath.
 - Gable (irimoya) triangle: dark wood lattice of `dark_oak_trapdoor`/`dark_oak_fence` over white.

@@ -61,7 +61,9 @@ test('runs claude with the right flags and parses stream-json', async () => {
   assert.equal(a.jobId, job.id);
   assert.ok(Number(a.toolTimeout) >= 600000);
   assert.deepEqual(a.mcpConfig.mcpServers.mcai, { type: 'http', url: 'http://127.0.0.1:4321/mcp', headers: { Authorization: 'Bearer secret-token', 'X-Mcai-Job': job.id } });
-  assert.equal(fs.existsSync(flag('--mcp-config')!), false, 'temp mcp config removed');
+  // the runner removes the temp config asynchronously after exit → poll instead of racing it
+  const cfgFile = flag('--mcp-config')!;
+  await waitFor(() => !fs.existsSync(cfgFile), 10_000, 'temp mcp config removed');
   // placeholder system prompt was created
   assert.ok(fs.existsSync(path.join(s.agentDir, 'SYSTEM.md')));
   const kinds = s.events.map((e) => e.kind);

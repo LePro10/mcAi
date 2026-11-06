@@ -289,6 +289,27 @@ export function placePrefab(name: string, at: Vec3, params: Record<string, unkno
   (front faces +z in local space); nature prefabs get a random rotation. Default seed derives from
   name + position. Extras: `resolvePrefabName` (aliases like `willow`, `palm`, `rock`).
 
+### core: physics, connectivity, builders (builder-feedback iteration)
+* `support.ts`: vanilla-like survival rules from block states only. `faceSupport(state, dir, reg)` → NONE/CENTER/FULL;
+  `checkSupportAt`, `needsSupport`, `resolveSupport(seeds, get, reg, {mode, set, allow})` (cascading, top-down;
+  unknown neighbours count as support), `removedState(state)` (water for waterlogged blocks / underwater plants,
+  else air), `holdsWater`, `isFluidState`, `isWaterPlant`, `summarizeSupport`. Gravity blocks over air only warn.
+* `session.ts`: `SessionOptions.support` / `FlushOptions.support` = `'drop'` (default) | `'warn'` | `'off'`; flush
+  seeds the check with changed blocks + known neighbours of changed non-full blocks (drops become part of the
+  undo record); `FlushResult.support: SupportReport | null` and `support: …` warning lines. Player WorldEdit tools
+  use `'off'`.
+* `trees.ts`: `naturalTreeMask(vol, reg, edited)`, `treeDebrisMask(vol, reg)` (floating log groups, leaves > 6
+  from logs unless the leaf cluster rests on something), `findFloating(vol, reg, {within})`, `isNaturalGround`.
+* `analysis.ts`: `classifyDarkSpots(vol, reg, spots)` → `'interior'|'covered'|'outdoor'|'roof'`.
+* `builders.ts`: `bridge(p, reg, emit, get)` (half-slab quantised walkable deck, rails, posts, piers, ropes,
+  lanterns) and `slabEdge(p, reg, emit)`; DSL ops `bridge`, `slab_edge` (alias `fascia`); helpers `slabFor`, `railFor`.
+* `shapes.ts` roof: styles `cone`, `swept_hip`; params `round`, `flare`, `sweep`, `lift`, `skipBox`, `soffit`,
+  `fascia`, `brackets`, `bracketEvery`, `finial`, `fill: true | id`; `validateRoofParams`, `ROOF_STYLES`.
+* `script.ts`: `ScriptRequest.ground` (natural ground map for `groundY`), `.generators` (name → body);
+  `ScriptResult.defines`, `.protectedSkips`. Sandbox globals `groundY, setSoft, protect, unprotect, define, call`;
+  shape/roof params are validated with usage messages.
+* `server/generators.ts`: `GeneratorLibrary` (`~/.mcai/generators/<name>.json`), `referencedGenerators(code)`.
+
 ---------------------------------------------------------------------------------------
 ## Owner: assets-render-sim
 
@@ -334,6 +355,10 @@ export function renderImage(v, assets, opts?): Promise<Img>;                    
 export function contactSheet(v, assets, opts?: RenderOptions & { views?: ViewName[] }): Promise<Buffer>; // default 4 iso views, 2×2, labelled
 export function renderLayers(v, assets, ys: number[], opts?: { cell?; maxWidth?; columns?; ghost? }): Promise<Buffer>; // blueprint slices
 ```
+Extras: `section?: boolean` (default true — natural terrain/water cut by the volume edge is drawn as a flat
+hatched section), `cutaway?: boolean` (default true — elevations skip natural terrain in front of the focus box);
+clear/stained glass get tint, fresnel sky reflection and darker edges. `render/expand.ts`: `builtMask(records)`,
+`expandToComponents(box, …)` (render_view `expand`, grows the box along connected build parts ≤ 24 per side).
 Views: camera position relative to the target — iso_se = from +x/+z, front = from +z (south) looking north, back = from −z,
 left = from −x (west), right = from +x. Orthographic except 'orbit' (perspective, fov 45°). Never fails without assets
 (flat palette colors + approximate shapes). Large images use a worker_threads pool (`MCAI_RENDER_THREADS`).

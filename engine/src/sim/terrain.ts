@@ -35,7 +35,8 @@ const B = {
   cactus: S('cactus[age=0]'), petals: (n: number, f: string) => S(`pink_petals[facing=${f},flower_amount=${n}]`),
 };
 const log = (w: string) => S(`${w}_log[axis=y]`);
-const leaves = (w: string) => S(`${w}_leaves[distance=7,persistent=true,waterlogged=false]`);
+// natural leaves, as in vanilla worlds: persistent=false (the sim never decays them)
+const leaves = (w: string) => S(`${w}_leaves[distance=1,persistent=false,waterlogged=false]`);
 const FLOWERS = ['dandelion', 'poppy', 'cornflower', 'oxeye_daisy', 'azure_bluet', 'allium', 'red_tulip', 'white_tulip', 'orange_tulip'].map(S);
 
 export class TerrainGen {

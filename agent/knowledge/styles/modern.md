@@ -40,7 +40,7 @@ Mixes: concrete is used pure — no random mixes on modern facades. Paving `70%s
 5. Plinth: dark `polished_deepslate` band or a recessed shadow gap 1 block under the ground floor so the house floats.
 
 ## Roof recipe
-- Flat roofs: `smooth_stone_slab` or `white_concrete_slab` (type=bottom) field, with a 1-block raised parapet or a thin slab edge projecting 1–2 blocks.
+- Flat roofs: `smooth_stone_slab` or `white_concrete_slab` (type=bottom) field, with a 1-block raised parapet or a thin slab edge projecting 1–2 blocks (slab_edge op: block `smooth_quartz`, overhang 1, light `sea_lantern` for a soffit light strip).
 - Hidden lights: `sea_lantern`/`pearlescent_froglight` flush in the ceiling plane (covered by the roof/floor above), or `end_rod` uplights in planters.
 - Optional single-pitch (shed) roof: shallow 1:3 with slabs, or a green roof of `moss_block` + `short_grass` + `azalea`.
 - Rooftop: sundeck of `spruce_planks`, glass balustrade (`glass_pane`), planters.

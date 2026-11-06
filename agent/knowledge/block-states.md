@@ -12,6 +12,16 @@ Directions in local space: `north` = −z (away from player), `south` = +z (towa
   computed on flush. Never hardcode `north=true`/`shape=outer_left`; just place the base id.
 - **Multiblocks**: place doors (lower half), beds (foot), tall plants (lower half), tall seagrass, pitcher plants,
   small dripleaf — the engine adds the other half. Keep the second cell free.
+- **Support (vanilla canSurvive)** is checked on flush; unsupported blocks are dropped and listed in the
+  `physics:` line (`support:'warn'` keeps them). Needs: `vine` a full face on each true side or the same face on
+  a vine above; `glow_lichen`/`sculk_vein` faces are trimmed to supported sides; wall torches, ladders,
+  `tripwire_hook`, buttons/levers (`face=wall`), amethyst buds and wall corals a full face behind; wall signs/
+  banners any solid block behind; `torch`, `lantern`, candles a full block or a post (fence, wall, chain, rod,
+  top slab — not a bottom slab, chest or lantern) below; `lantern[hanging=true]`, hanging signs a block/chain
+  above; flowers, grass, saplings, bushes dirt-like ground (`grass_block`, `dirt`, `moss_block`, `mud`,
+  `farmland`; dead bush/dry grass also sand/terracotta; crops `farmland`; `cactus` sand and no solid side
+  neighbours; `sugar_cane` water next to its base); carpets anything below; rails, pressure plates, redstone,
+  doors a solid floor; `lily_pad` water; `cocoa` a jungle log. Removing a support also drops what hung on it.
 
 ## Stairs  `*_stairs[facing, half, shape, waterlogged]`
 - `facing` = the side of the **tall back** of the step = the direction you walk *up*. Roof slope on the front (+z)

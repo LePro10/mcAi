@@ -91,7 +91,7 @@ test('flush: backend-reported unchanged blocks and failures are excluded from th
 
 test('flush with connect: fences connect, door upper half is added, bounds respected', async () => {
   const be = new MemBackend([[2, 0, 0, 'minecraft:oak_fence[east=false,north=false,south=false,waterlogged=false,west=false]']]);
-  const s = new EditSession(be, reg(), { bounds: { min: [0, 0, 0], max: [10, 1, 10] } });
+  const s = new EditSession(be, reg(), { bounds: { min: [0, 0, 0], max: [10, 1, 10] }, support: 'off' });
   s.set(3, 0, 0, 'oak_fence');
   s.set(5, 0, 5, 'oak_door[facing=north]');
   s.set(5, 1, 8, 'oak_door[facing=north]'); // upper half would be at y=2 — outside bounds

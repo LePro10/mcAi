@@ -39,7 +39,7 @@ Mixes: wall `50%stone_bricks,20%cracked_stone_bricks,15%mossy_stone_bricks,10%an
 5. Interior face cleaner (`stone_bricks`), wall-walk floor `stone_brick_slab`.
 
 ## Roof recipe
-- Round towers: conical spire (cone) in `deepslate_tile_stairs` or `blue_terracotta`, base overhangs the tower by 1, height 1.5–2× the radius ×2; finial `lightning_rod` with a banner below.
+- Round towers: roof op style cone (or round spire) in `deepslate_tile_stairs`, overhang 1, pitch 1.5–2, soffit and finial true; banner below the finial.
 - Square towers: steep pyramid/hip roof or open battlements; a 2-tier "hat" (lower flared ring of stairs, then steep spire).
 - Keep: hip roof in `deepslate_tile_stairs` with dormers and corner turrets (radius 2) corbelled out on `stone_brick_stairs[half=top]` corbels.
 - Gatehouse: battlements + machicolations, small roof over the portcullis room.

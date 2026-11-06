@@ -6,6 +6,7 @@ import type { BlockVolume, Box, EditBatch, Vec3, WorldBackend } from '../../core
 import type { Registry } from '../../core/registry.ts';
 import { Frame } from '../../core/frame.ts';
 import { EditSession, BoundsError, LimitError, type FlushResult, type History } from '../../core/session.ts';
+import { summarizeSupport, type SupportMode } from '../../core/support.ts';
 import type { BlockSink } from '../../core/dsl.ts';
 import type { StructureLibrary } from '../../core/schematic.ts';
 import type { AssetStore } from '../../assets/assets.ts';
@@ -67,6 +68,10 @@ export const SpaceIn = z
   .enum(['local', 'world'])
   .default('local')
   .describe("'local' (default; see get_context) or 'world'");
+export const SupportIn = z
+  .enum(['drop', 'warn', 'off'])
+  .default('drop')
+  .describe("unsupported attachables (floating vines/torches/lanterns, flowers on stone…): 'drop' (default) removes them, 'warn' keeps them, 'off' skips the check");
 
 export function defineTool<S extends z.ZodObject<any>>(def: Omit<ToolDef, 'input' | 'run'> & { input: S; run(args: z.infer<S>, ctx: ToolCtx): Promise<ToolOutput | string> }): ToolDef {
   return def as ToolDef;
@@ -219,10 +224,13 @@ export class DrySink implements BlockSink {
   outsideMax: Vec3 = [-Infinity, -Infinity, -Infinity];
   private bounds: Box;
   private limit: number;
+  private read: ((x: number, y: number, z: number) => string) | null;
 
-  constructor(bounds: Box, limit: number) {
+  /** `read` (optional) = the world as known so far, for ops that look at the terrain (bridge piers) */
+  constructor(bounds: Box, limit: number, read: ((x: number, y: number, z: number) => string) | null = null) {
     this.bounds = bounds;
     this.limit = limit;
+    this.read = read;
   }
 
   private touch(x: number, y: number, z: number): void {
@@ -236,7 +244,7 @@ export class DrySink implements BlockSink {
 
   get(x: number, y: number, z: number): string {
     this.touch(x, y, z);
-    return this.writesMap.get(x, y, z) ?? 'minecraft:air';
+    return this.writesMap.get(x, y, z) ?? (this.read ? this.read(x, y, z) : 'minecraft:air');
   }
 
   set(x: number, y: number, z: number, state: string): void {
@@ -291,6 +299,8 @@ export async function prefetch(ctx: ToolCtx, session: EditSession, box: Box | nu
 }
 
 export interface FlushStats {
+  /** support check summary lines (local coordinates) */
+  support: string[];
   changed: number;
   unchanged: number;
   failed: number;
@@ -301,10 +311,17 @@ export interface FlushStats {
 }
 
 /** Flush a session, record undo, update job counters, notify viewer. */
-export async function commit(ctx: ToolCtx, session: EditSession, label: string): Promise<FlushStats> {
+export async function commit(ctx: ToolCtx, session: EditSession, label: string, opts: { support?: SupportMode; space?: 'local' | 'world' } = {}): Promise<FlushStats> {
   const t0 = Date.now();
-  if (session.pending === 0) return { changed: 0, unchanged: 0, failed: 0, undoId: null, ms: 0, failures: [], warnings: [] };
-  const r: FlushResult = await session.flush({ animate: 'layers', dimension: ctx.job.dimension });
+  if (session.pending === 0) return { changed: 0, unchanged: 0, failed: 0, undoId: null, ms: 0, failures: [], warnings: [], support: [] };
+  const r: FlushResult = await session.flush({ animate: 'layers', dimension: ctx.job.dimension, ...(opts.support ? { support: opts.support } : {}) });
+  const support: string[] = [];
+  if (r.support) {
+    const f = (opts.space ?? 'local') === 'local' ? frameOf(ctx) : null;
+    const fmt = (p: Vec3) => fmtV(f ? f.toLocal(p) : p);
+    support.push(...summarizeSupport(r.support.changes, fmt));
+    if (r.support.warnings.length) support.push(...summarizeSupport(r.support.warnings, fmt, 'kept'));
+  }
   const rec = r.record;
   const changed = r.changed;
   let undoId: string | null = null;
@@ -318,10 +335,11 @@ export async function commit(ctx: ToolCtx, session: EditSession, label: string):
   const reasons = new Map<string, number>();
   for (const f of r.failed) reasons.set(f.reason, (reasons.get(f.reason) ?? 0) + 1);
   return {
+    support,
     changed,
     unchanged: r.unchanged,
     failed: r.failed.length,
-    warnings: r.warnings,
+    warnings: r.warnings.filter((w) => !w.startsWith('support: ')),
     undoId,
     ms: Date.now() - t0,
     failures: [...reasons].slice(0, 5).map(([k, n]) => `${n}x ${k}`),
@@ -334,7 +352,9 @@ export function statsText(s: FlushStats): string {
   if (s.failed) parts.push(`${s.failed} FAILED (${s.failures.join('; ')})`);
   parts.push(s.undoId ? `undo id ${s.undoId}` : 'nothing to undo');
   if (s.warnings.length) parts.push(`warnings: ${s.warnings.slice(0, 5).join(' | ')}${s.warnings.length > 5 ? ` (+${s.warnings.length - 5})` : ''}`);
-  return parts.join(', ');
+  let out = parts.join(', ');
+  if (s.support.length) out += `\nphysics (local coords): ${s.support.join(' | ')}`;
+  return out;
 }
 
 /** Map core errors to agent-facing messages. */
@@ -375,6 +395,24 @@ export function jobEditBounds(ctx: ToolCtx): Box | null {
     if (!ids.has(rec.id)) continue;
     const b = batchBounds(rec.after);
     if (b) out = out ? boxUnion(out, b) : b;
+  }
+  return out;
+}
+
+/**
+ * Positions edited by this job (world) → the state they had BEFORE the job first touched them.
+ * Built from the job's undo records (oldest first); undone records are not included.
+ */
+export function jobOriginals(ctx: ToolCtx): PosMap<string> {
+  const ids = new Set(ctx.job.undoIds);
+  const out = new PosMap<string>();
+  for (const rec of ctx.env.history.list(ctx.job.player)) {
+    if (!ids.has(rec.id)) continue;
+    const b = rec.before;
+    for (let k = 0; k < b.states.length; k++) {
+      const x = b.positions[3 * k]!, y = b.positions[3 * k + 1]!, z = b.positions[3 * k + 2]!;
+      if (!out.has(x, y, z)) out.set(x, y, z, b.palette[b.states[k]!]!);
+    }
   }
   return out;
 }

@@ -128,9 +128,16 @@ export class SimBackend implements WorldBackend {
     const data = new Uint16Array(sx * sy * sz);
     const palette = ['minecraft:air'];
     const W = this.world;
-    const map = new Int32Array(W.states.length).fill(-1);
+    // world state ids → volume palette indices. Chunks generated during this read add new
+    // world states, so the map must grow on demand (ids past its end are new, not air).
+    let map = new Int32Array(Math.max(64, W.states.length)).fill(-1);
     map[0] = 0;
     const local = (id: number) => {
+      if (id >= map.length) {
+        const grown = new Int32Array(Math.max(id + 1, map.length * 2)).fill(-1);
+        grown.set(map);
+        map = grown;
+      }
       let m = map[id];
       if (m < 0) {
         m = palette.length;

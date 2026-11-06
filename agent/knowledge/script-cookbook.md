@@ -3,7 +3,7 @@
 Ready-to-adapt generators for organic, curved, repetitive or large-scale forms. Paste the **prelude** plus one
 recipe into a single run_script call, edit the PARAMS block, run, then render_view and iterate.
 
-Sandbox API (see the run_script tool description): `set(x,y,z,block)` where block = state string, weighted string
+Sandbox API (see the run_script tool description): `set(x,y,z,block)` / `setSoft(...)` where block = state string, weighted string
 (`'70%stone,30%andesite'`), pattern-spec object (gradients need `from`/`to` in a script) or function
 `(x,y,z) => state|null`; `get(x,y,z)` returns the
 state inside readBox (default = the allowed box) **including your own writes**; `fill(x1,y1,z1,x2,y2,z2,block)`;
@@ -15,7 +15,10 @@ Coordinates are **local** by default: origin = anchor, **y=0 = the anchor's grou
 −z forward into the site, +z toward the player; states authored as if looking north.
 
 Rules of thumb
-- Use get_context/heightmap for ground heights first; recipes take a ground Y or call `groundY` (reads readBox).
+- Ground: built-in `groundY(x,z)` (natural ground inside readBox — ignores plants, leaves, tree logs and this job's
+  own builds); `setSoft` places only into air/plants; `protect(box)` keeps finished parts safe from later sets.
+- Reuse: `define('name', function (params) {...})` once, then `call('name', {...})` in this and later scripts of
+  the job; `save_generator` keeps it for future jobs (`list_generators`).
 - One script ≤ ~200k blocks and ≤ 15 s (raise timeoutMs up to 120000 for big terrain); `log()` key coordinates.
 - Leaves always `persistent=true`. Never write outside the allowed box (the whole call is rejected; clip:true drops).
 - Same seed → same result. Errors come back with line numbers — fix and rerun.
@@ -25,13 +28,10 @@ Rules of thumb
 ## 0. Prelude (paste first)
 ```js
 // ---------- prelude: helpers used by all recipes ----------
-const SOFT = /air|short_grass|tall_grass|fern|dry_grass|bush|flower|poppy|dandelion|tulip|orchid|allium|bluet|daisy|lily_of|rose|lilac|peony|petals|wildflowers|leaf_litter|snow\[|sapling|vine|leaves|mushroom$/;
+// built-ins: groundY(x,z) = natural ground (ignores plants, leaves, tree logs and your own builds);
+// setSoft(x,y,z,b) = place only into air/grass/flowers; protect(box) = later sets inside are ignored
+const soft = setSoft;
 const emptyAt = (x, y, z) => isAir(get(x, y, z));
-function soft(x, y, z, b) { if (emptyAt(x, y, z)) set(x, y, z, b); }   // place only into air
-function groundY(x, z, top = 48, bottom = -32) {     // highest solid (non-plant) block, local y
-  for (let y = top; y >= bottom; y--) if (!SOFT.test(get(x, y, z))) return y;
-  return bottom;
-}
 function ball(cx, cy, cz, r, b, ry = r, fn = set) {  // ellipsoid; fn = set | soft
   const R = Math.ceil(Math.max(r, ry));
   for (let x = -R; x <= R; x++) for (let y = -R; y <= R; y++) for (let z = -R; z <= R; z++)
@@ -93,38 +93,15 @@ for (let i = 0; i < roots; i++) {
 log('tree at', X, Y, Z);
 ```
 
-## 2. Curved (arched) bridge with railings and lamp posts
-```js
-// PARAMS: deck from A to B (local), inclusive width W (odd), arch rise RISE
-const A = [-12, 1, -20], B = [12, 1, -20], WIDTH = 5, RISE = 4;
-const DECK = pattern('70%spruce_planks,30%stripped_spruce_wood');
-const DECK_SLAB = 'spruce_slab[type=bottom]';
-const ARCH = pattern('60%stone_bricks,25%mossy_stone_bricks,15%cracked_stone_bricks');
-const RAIL = 'spruce_fence', POST = 'stripped_spruce_log', LAMP = 'lantern';
-const dx = B[0] - A[0], dz = B[2] - A[2], L = Math.hypot(dx, dz), ux = dx / L, uz = dz / L, px = -uz, pz = ux;
-const top = new Map();                         // cell -> {yf, s, t}
-for (let i = 0; i <= L * 3; i++) for (let j = 0; j <= WIDTH * 3; j++) {
-  const t = i / (L * 3), s = (j / (WIDTH * 3) - 0.5) * (WIDTH - 1);
-  const x = Math.round(A[0] + dx * t + px * s), z = Math.round(A[2] + dz * t + pz * s);
-  const yf = lerp(A[1], B[1], t) + RISE * Math.sin(Math.PI * t);
-  const k = x + ',' + z, c = top.get(k);
-  if (!c || yf > c.yf) top.set(k, { yf, s: Math.max(Math.abs(s), c ? c.s : 0), t });
-}
-for (const [k, c] of top) {
-  const [x, z] = k.split(',').map(Number), base = Math.floor(c.yf), half = c.yf - base >= 0.5;
-  set(x, base, z, DECK);
-  if (half) set(x, base + 1, z, DECK_SLAB);
-  const under = Math.max(1, Math.round(2 + 3 * (1 - Math.sin(Math.PI * c.t))));   // thicker at the ends
-  for (let y = base - under; y < base; y++) set(x, y, z, ARCH);
-  if (c.s >= (WIDTH - 1) / 2 - 0.25) {                                      // edge: railing
-    const ry = base + (half ? 2 : 1);
-    const postHere = Math.round(c.t * L) % 6 === 0;
-    set(x, ry, z, postHere ? POST : RAIL);
-    if (postHere) set(x, ry + 1, z, LAMP);
-  }
-}
-log('bridge cells', top.size);
+## 2. Bridges → use the built-in `bridge` build op (no script needed)
+Walkable deck with half-slab steps (never a jump), rails, posts, piers to the ground, lanterns, suspension ropes:
+```json
+{"op":"bridge","from":[-12,1,-20],"to":[12,1,-20],"width":5,"profile":"arch","rise":3,"deck":"spruce_planks",
+ "post":"stripped_spruce_log","supports":"stone_bricks","supportEvery":6,"lantern":"lantern"}
+{"op":"bridge","from":[4,18,-26],"to":[24,16,-26],"width":3,"profile":"sag","sag":3,"deck":"spruce_planks","rope":"iron_chain","lantern":"lantern"}
 ```
+`from`/`to` = the standing positions at both ends (deck block below). Curved-in-plan bridges: chain 2–3 straight
+bridge ops (each segment's `to` = next `from`). Stone arch underneath: add an `arch` op below the deck.
 
 ## 3. Round tower with spiral stair, spiral windows and conical stair roof
 ```js
@@ -216,13 +193,13 @@ for (let i = 0; i + 1 < PTS.length; i++) {
   }
 }
 for (const [k, o] of cells) {
-  const [x, z] = k.split(',').map(Number), g = groundY(x, z, TOPY, BOTY), top = g + H;
+  const [x, z] = k.split(',').map(Number), g = groundY(x, z), top = g + H;
   for (let y = g - 1; y <= top; y++) set(x, y, z, y <= g + 1 ? BASE : WALL);
   if (o <= -(T - 1) / 2 + 0.01 && (x + z) % 2 === 0) set(x, top + 1, z, WALL);        // merlons on the outer face
   if (o >= (T - 1) / 2 - 0.01) set(x, top + 1, z, 'stone_brick_wall');                  // inner parapet
 }
 for (const [tx, tz] of PTS) {                               // round towers at every vertex
-  let g = 999; for (let a = 0; a < 6.3; a += 0.5) g = Math.min(g, groundY(Math.round(tx + Math.cos(a) * TOWER_R), Math.round(tz + Math.sin(a) * TOWER_R), TOPY, BOTY));
+  let g = 999; for (let a = 0; a < 6.3; a += 0.5) g = Math.min(g, groundY(Math.round(tx + Math.cos(a) * TOWER_R), Math.round(tz + Math.sin(a) * TOWER_R)));
   const top = g + H + TOWER_EXTRA;
   for (let x = -TOWER_R - 1; x <= TOWER_R + 1; x++) for (let z = -TOWER_R - 1; z <= TOWER_R + 1; z++) {
     const d = Math.hypot(x, z); if (d > TOWER_R + 0.5) continue;
@@ -244,7 +221,7 @@ const half = WIDTH / 2, bankW = 4;
 for (let z = Math.min(Z0, Z1); z <= Math.max(Z0, Z1); z++) for (let x = X0 - AMP * 1.5 - half - bankW; x <= X0 + AMP * 1.5 + half + bankW; x++) {
   let dmin = 1e9; for (const [px, pz] of path) { if (Math.abs(pz - z) > half + bankW + 1) continue; dmin = Math.min(dmin, Math.hypot(px - x, pz - z)); }
   if (dmin > half + bankW) continue;
-  const xi = Math.round(x), g = groundY(xi, z, TOPY, BOTY);
+  const xi = Math.round(x), g = groundY(xi, z);
   if (dmin <= half) {                                          // channel
     const bottom = WATER_Y - Math.max(1, Math.round(DEPTH * (1 - (dmin / half) ** 2)));
     for (let y = g; y > WATER_Y; y--) set(xi, y, z, 'air');
@@ -285,7 +262,7 @@ for (let x = Math.floor(minX); x <= maxX; x++) for (let z = Math.floor(minZ); z 
   if (distToPath(x, z) > WIDTH / 2 + 0.8 * noise2(x * 0.4, z * 0.4)) continue;   // ragged edge
   let d1 = 1e9, d2 = 1e9, s1 = null;
   for (const s of seeds) { const d = Math.hypot(s[0] - x, s[1] - z); if (d < d1) { d2 = d1; d1 = d; s1 = s; } else if (d < d2) d2 = d; }
-  const g = groundY(x, z, TOPY, BOTY);
+  const g = groundY(x, z);
   set(x, g, z, d2 - d1 < 0.55 ? MORTAR(x, g, z) : s1[2]);
   if (!isAir(get(x, g + 1, z))) set(x, g + 1, z, 'air');                           // remove plants on the path
 }
@@ -303,7 +280,7 @@ for (let tries = 0; trees.length < N && tries < 400; tries++) {
 }
 const F = ['north', 'east', 'south', 'west'];
 for (const [x, z] of trees) {
-  const y = groundY(x, z, TOPY, BOTY) + 1, h = 5 + Math.floor(rand() * 3), lean = rand() * Math.PI * 2;
+  const y = groundY(x, z) + 1, h = 5 + Math.floor(rand() * 3), lean = rand() * Math.PI * 2;
   const top = [x + Math.cos(lean) * 2, y + h, z + Math.sin(lean) * 2];
   seg([x, y, z], top, 1, 0.5, 'cherry_wood');
   for (let b = 0; b < 3; b++) {                                     // arching limbs
@@ -315,7 +292,7 @@ for (const [x, z] of trees) {
   }
   for (let k = 0; k < 40; k++) {                                     // petal carpet under the canopy
     const px = x + Math.round((rand() - 0.5) * 12), pz = z + Math.round((rand() - 0.5) * 12);
-    const g = groundY(px, pz, TOPY, BOTY);
+    const g = groundY(px, pz);
     if (/grass_block|moss_block|dirt/.test(get(px, g, pz))) soft(px, g + 1, pz, `pink_petals[facing=${F[randInt(0, 3)]},flower_amount=${randInt(1, 4)}]`);
   }
 }
@@ -396,18 +373,18 @@ for (let a = 0; a < ARMS; a++) {
   for (let s = 0; s < ARM_LEN; s++) {                                    // wandering road, 3 wide
     dir += (noise2(a * 10, s * 0.08) * 0.08);
     px += Math.cos(dir); pz += Math.sin(dir);
-    for (let o = -1; o <= 1; o++) { const x = Math.round(px - Math.sin(dir) * o), z = Math.round(pz + Math.cos(dir) * o); const g = groundY(x, z, TOPY, BOTY); set(x, g, z, ROAD(x, g, z)); }
+    for (let o = -1; o <= 1; o++) { const x = Math.round(px - Math.sin(dir) * o), z = Math.round(pz + Math.cos(dir) * o); const g = groundY(x, z); set(x, g, z, ROAD(x, g, z)); }
     if (s % (PLOT[0] + GAP) === 8) for (const side of [-1, 1]) {        // plots on both sides, front faces the road
       const off = 2 + GAP + PLOT[1] / 2, cx = Math.round(px - Math.sin(dir) * off * side), cz = Math.round(pz + Math.cos(dir) * off * side);
       const box = { min: [cx - (PLOT[0] >> 1), 0, cz - (PLOT[1] >> 1)], max: [cx + (PLOT[0] >> 1), 0, cz + (PLOT[1] >> 1)] };
       if (plots.some((p) => box.min[0] <= p.box.max[0] + GAP && box.max[0] >= p.box.min[0] - GAP && box.min[2] <= p.box.max[2] + GAP && box.max[2] >= p.box.min[2] - GAP)) continue;
-      const g = groundY(cx, cz, TOPY, BOTY); box.min[1] = g - 2; box.max[1] = g + 22;
+      const g = groundY(cx, cz); box.min[1] = g - 2; box.max[1] = g + 22;
       plots.push({ box, front: towardFacing(px - cx, pz - cz), ground: g });
     }
   }
 }
 for (let x = -PLAZA_R; x <= PLAZA_R; x++) for (let z = -PLAZA_R; z <= PLAZA_R; z++) if (Math.hypot(x, z) <= PLAZA_R + 0.3) {
-  const g = groundY(CX + x, CZ + z, TOPY, BOTY); set(CX + x, g, CZ + z, (x + z) % 3 ? 'cobblestone' : 'andesite');
+  const g = groundY(CX + x, CZ + z); set(CX + x, g, CZ + z, (x + z) % 3 ? 'cobblestone' : 'andesite');
 }
 log('PLOTS', JSON.stringify(plots));   // front = facade direction (toward the road), in local space
 ```
@@ -421,12 +398,22 @@ for (let i = 0; i < 3; i++) { const a = rand() * 6.28, d = BIG + 1 + rand() * 2;
 for (let i = 0; i < 10; i++) soft(X + randInt(-6, 6), Y + 1, Z + randInt(-6, 6), rand() < 0.5 ? 'fern' : 'short_grass');
 ```
 
-## 14. Treehouse kit: platform around a trunk, wrap-around stair, rope bridge
+## 14. Treehouse kit: platform around a trunk, wrap-around stair with a stairwell (bridges: `bridge` op)
 ```js
-// PARAMS: trunk center + radius (trunk already built, e.g. recipe 1 with R0 3-4), platform height, bridge target
-const TX = 0, TZ = -20, TR = 3, PY = 18, PR = 7, GROUND = 0, BRIDGE_TO = [24, 16, -26];
+// PARAMS: trunk center + radius (trunk already built, e.g. recipe 1 with R0 3-4), platform height
+const TX = 0, TZ = -20, TR = 3, PY = 18, PR = 7, GROUND = groundY(TX + TR + 2, TZ);
 const FLOOR = pattern('70%spruce_planks,30%stripped_spruce_wood');
-// 1) ring platform with railing and diagonal braces down into the trunk
+// 1) stair spiralling around the trunk from the ground up to the platform (2 wide, trapdoor undersides)
+const rs = TR + 1.5, rise = PY - GROUND, dA = 1 / rs, steps = [];
+for (let i = 0; i < rise; i++) {
+  const a = i * dA, y = GROUND + 1 + i;
+  for (const r of [rs, rs + 1]) { const x = TX + Math.cos(a) * r, z = TZ + Math.sin(a) * r; set(x, y, z, `spruce_stairs[facing=${towardFacing(-Math.sin(a), Math.cos(a))}]`); steps.push([Math.round(x), y, Math.round(z)]); }
+  set(TX + Math.cos(a) * (rs + 1), y - 1, TZ + Math.sin(a) * (rs + 1), 'spruce_trapdoor[half=top]');
+}
+// 2) stairwell: keep 3 blocks of headroom above the top steps, then protect it from the platform
+const well = steps.filter(([, y]) => y >= PY - 3);
+for (const [x, y, z] of well) for (let h = 1; h <= 3; h++) if (y + h >= PY - 1) { set(x, y + h, z, 'air'); protect({ min: [x, y + h, z], max: [x, y + h, z] }); }
+// 3) ring platform with railing, braces and hanging lanterns
 for (let x = -PR; x <= PR; x++) for (let z = -PR; z <= PR; z++) {
   const d = Math.hypot(x, z); if (d > PR + 0.5 || d <= TR + 0.5) continue;
   set(TX + x, PY, TZ + z, FLOOR);
@@ -434,25 +421,11 @@ for (let x = -PR; x <= PR; x++) for (let z = -PR; z <= PR; z++) {
 }
 for (let k = 0; k < 8; k++) { const a = (k / 8) * Math.PI * 2; seg([TX + Math.cos(a) * (TR + 0.5), PY - 4, TZ + Math.sin(a) * (TR + 0.5)], [TX + Math.cos(a) * (PR - 1), PY - 1, TZ + Math.sin(a) * (PR - 1)], 0.5, 0.5, 'stripped_spruce_wood'); }
 for (let k = 0; k < 4; k++) { const a = (k / 4) * Math.PI * 2 + 0.4; set(TX + Math.cos(a) * (PR - 1), PY - 1, TZ + Math.sin(a) * (PR - 1), 'lantern[hanging=true]'); }
-// 2) stair spiralling around the trunk from the ground to the platform (stairs + slab landings)
-const rs = TR + 1.5, rise = PY - GROUND, dA = 1 / rs;
-for (let i = 0; i < rise; i++) {
-  const a = i * dA, y = GROUND + 1 + i, x = TX + Math.cos(a) * rs, z = TZ + Math.sin(a) * rs;
-  set(x, y, z, `spruce_stairs[facing=${towardFacing(-Math.sin(a), Math.cos(a))}]`);
-  set(TX + Math.cos(a) * (rs + 1), y, TZ + Math.sin(a) * (rs + 1), `spruce_stairs[facing=${towardFacing(-Math.sin(a), Math.cos(a))}]`);
-  set(TX + Math.cos(a) * (rs + 1), y - 1, TZ + Math.sin(a) * (rs + 1), 'spruce_trapdoor[half=top]');
-}
-// 3) sagging rope bridge from the platform edge to BRIDGE_TO
-const a0 = Math.atan2(BRIDGE_TO[2] - TZ, BRIDGE_TO[0] - TX), S = [TX + Math.cos(a0) * PR, PY, TZ + Math.sin(a0) * PR];
-const bx = BRIDGE_TO[0] - S[0], bz = BRIDGE_TO[2] - S[2], L = Math.hypot(bx, bz), SAG = Math.max(1.5, L / 10);
-for (let i = 0; i <= L * 2; i++) {
-  const t = i / (L * 2), y = Math.round(lerp(S[1], BRIDGE_TO[1], t) - SAG * 4 * t * (1 - t));
-  const x = S[0] + bx * t, z = S[2] + bz * t, px = -bz / L, pz = bx / L;
-  set(x, y, z, 'spruce_slab[type=top]'); set(x + px, y, z + pz, 'spruce_slab[type=top]'); set(x - px, y, z - pz, 'spruce_slab[type=top]');
-  set(x + px * 2, y + 1, z + pz * 2, 'spruce_fence'); set(x - px * 2, y + 1, z - pz * 2, 'spruce_fence');
-}
-log('platform y', PY, 'bridge length', L.toFixed(1));
+unprotect();
+log('platform y', PY, 'stairwell cells', well.length, '— protect({min:[TX-PR,PY,TZ-PR],max:[TX+PR,PY+6,TZ+PR]}) in later canopy scripts');
 ```
+Connect platforms with `{"op":"bridge","from":[..],"to":[..],"profile":"sag","rope":"iron_chain","deck":"spruce_planks"}`.
+In later canopy/branch scripts call `protect(houseBox)` first so leaves and limbs never fill pods, stairs or bridges.
 
 ## 15. Swept (concave) roof with lifted corners — japanese / fantasy halls
 ```js

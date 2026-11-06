@@ -8,6 +8,7 @@ import { AIR } from './blockstate.ts';
 import { solveConnections } from './connect.ts';
 import { expandMultiblock } from './multiblock.ts';
 import { PosMap, checkCoord } from './posmap.ts';
+import { needsSupport, resolveSupport, summarizeSupport, type SupportMode, type SupportReport } from './support.ts';
 import {
   boxContains,
   boxContainsBox,
@@ -38,6 +39,17 @@ export interface SessionOptions {
   connect?: boolean;
   /** if given, every flush with changes is pushed onto this history */
   history?: History;
+  /**
+   * physical plausibility on flush (core/support.ts): 'drop' (default) removes unsupported
+   * attachables (floating vines, torches in mid-air, flowers on stone …) and trims multiface
+   * blocks; 'warn' only reports them; 'off' skips the check.
+   */
+  support?: SupportMode;
+}
+
+export interface FlushOptions extends SetBlocksOptions {
+  /** override SessionOptions.support for this flush */
+  support?: SupportMode;
 }
 
 export interface UndoRecord {
@@ -66,6 +78,8 @@ export interface FlushResult {
   ms: number;
   warnings: string[];
   record: UndoRecord | null;
+  /** support check result (null if off / nothing to check) — warnings also contain a summary */
+  support: SupportReport | null;
 }
 
 /** Max entries per backend.setBlocks call. */
@@ -156,6 +170,7 @@ export class EditSession implements BlockSink {
   label: string;
   readonly connect: boolean;
   readonly history: History | undefined;
+  support: SupportMode;
 
   private changes = new PosMap<string>();
   private volumes: BlockVolume[] = [];
@@ -181,6 +196,7 @@ export class EditSession implements BlockSink {
     this.label = opts.label ?? 'edit';
     this.connect = opts.connect !== false;
     this.history = opts.history;
+    this.support = opts.support ?? 'drop';
   }
 
   get pending(): number {
@@ -298,11 +314,12 @@ export class EditSession implements BlockSink {
   }
 
   /** Write pending changes to the backend. Serialized per backend. */
-  flush(opts: SetBlocksOptions = {}): Promise<FlushResult> {
+  flush(opts: FlushOptions = {}): Promise<FlushResult> {
     return withBackendLock(this.backend, () => this.doFlush(opts));
   }
 
-  private async doFlush(opts: SetBlocksOptions): Promise<FlushResult> {
+  private async doFlush(flushOpts: FlushOptions): Promise<FlushResult> {
+    const { support: supportOpt, ...opts } = flushOpts;
     const t0 = performance.now();
     const warnings: string[] = [];
     const work = this.changes;
@@ -311,7 +328,7 @@ export class EditSession implements BlockSink {
     let connections = 0;
 
     if (work.size === 0) {
-      return { placed: 0, unchanged: 0, failed: [], changed: 0, connections: 0, multiblock: 0, batches: 0, ms: 0, warnings, record: null };
+      return { placed: 0, unchanged: 0, failed: [], changed: 0, connections: 0, multiblock: 0, batches: 0, ms: 0, warnings, record: null, support: null };
     }
 
     if (this.connect) {
@@ -361,6 +378,18 @@ export class EditSession implements BlockSink {
         if (!work.has(x, y, z) && this.cached(x, y, z) === undefined) continue;
         connections++;
         work.set(x, y, z, s);
+      }
+    }
+
+    // 2b. physical plausibility: unsupported attachables are dropped / trimmed (or reported)
+    let support: SupportReport | null = null;
+    const supportMode = supportOpt ?? this.support;
+    if (supportMode !== 'off') {
+      if (!this.connect) await this.ensureCached(work, warnings);
+      support = this.checkSupport(work, supportMode);
+      if (support) {
+        for (const line of summarizeSupport(support.changes)) warnings.push(`support: ${line}`);
+        if (support.warnings.length) for (const line of summarizeSupport(support.warnings, undefined, 'found')) warnings.push(`support: ${line}`);
       }
     }
 
@@ -451,6 +480,7 @@ export class EditSession implements BlockSink {
       ms: Math.round(performance.now() - t0),
       warnings,
       record,
+      support,
     };
     for (const cb of this.listeners) {
       try {
@@ -460,6 +490,31 @@ export class EditSession implements BlockSink {
       }
     }
     return result;
+  }
+
+  /** Seeds = changed blocks that need support + known neighbours of changed blocks that may have lost it. */
+  private checkSupport(work: PosMap<string>, mode: SupportMode): SupportReport | null {
+    const reg = this.reg;
+    const seeds: Vec3[] = [];
+    const nb: Vec3[] = [[1, 0, 0], [-1, 0, 0], [0, 1, 0], [0, -1, 0], [0, 0, 1], [0, 0, -1]];
+    for (const [x, y, z, s] of work.entries()) {
+      if (needsSupport(s, reg)) seeds.push([x, y, z]);
+      if (reg.isFullSolid(s)) continue; // a full block never removes support from its neighbours
+      for (const d of nb) {
+        const px = x + d[0], py = y + d[1], pz = z + d[2];
+        if (work.has(px, py, pz)) continue;
+        const c = this.cached(px, py, pz);
+        if (c !== undefined && needsSupport(c, reg)) seeds.push([px, py, pz]);
+      }
+    }
+    if (!seeds.length) return null;
+    const get = (x: number, y: number, z: number): string | undefined => work.get(x, y, z) ?? this.cached(x, y, z);
+    const rep = resolveSupport(seeds, get, reg, {
+      mode,
+      allow: (x, y, z) => this.inBounds(x, y, z) && (work.has(x, y, z) || this.cached(x, y, z) !== undefined),
+      set: (x, y, z, st) => work.set(x, y, z, cachedCanonical(reg, st)),
+    });
+    return rep.changes.length || rep.warnings.length ? rep : null;
   }
 
   private remember(x: number, y: number, z: number, s: string): void {

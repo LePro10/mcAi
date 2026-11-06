@@ -31,6 +31,10 @@ export interface SceneData {
   pColor: Float32Array;
   pEmit: Float32Array;
   pFluidH: Float32Array;
+  /** glass kind per palette entry: 0 none, 1 clear glass/pane, 2 stained/tinted */
+  pGlass: Uint8Array;
+  /** natural terrain class: 0 none, 1 solid ground, 2 loose plants/snow, 3 fluid */
+  pTerrain: Uint8Array;
   elems: Float32Array;
   atlas: Uint8Array;
   atlasW: number;
@@ -76,6 +80,7 @@ export function compileScene(v: BlockVolume, assets: AssetStore | null, biome?: 
   const pKind = shared(Uint8Array, P), pFlags = shared(Uint8Array, P), pGroup = shared(Int32Array, P);
   const pElem = shared(Int32Array, 2 * P), pTint = shared(Float32Array, 3 * P), pColor = shared(Float32Array, 4 * P);
   const pEmit = shared(Float32Array, P), pFluidH = shared(Float32Array, P);
+  const pGlass = shared(Uint8Array, P), pTerrain = shared(Uint8Array, P);
   let E = 0;
   for (const g of geos) E += g.cuboids.length;
   const elems = shared(Float32Array, E * ES);
@@ -97,6 +102,8 @@ export function compileScene(v: BlockVolume, assets: AssetStore | null, biome?: 
     if (g.flat) flags |= F_FLAT;
     if (!g.ao) flags |= F_PLANT;
     pFlags[p] = flags;
+    pGlass[p] = glassKind(id);
+    pTerrain[p] = terrainClass(id);
     pFluidH[p] = g.fluidLevel >= 8 ? 1 : g.fluidLevel === 0 ? 8 / 9 : (8 - (g.fluidLevel & 7)) / 9;
     if (selfCulls(id)) {
       if (!groups.has(id)) groups.set(id, groups.size + 1);
@@ -180,12 +187,42 @@ export function compileScene(v: BlockVolume, assets: AssetStore | null, biome?: 
   const wt = assets ? assets.tint('water', biome) : [0x3f, 0x76, 0xe4];
   return {
     sx, sy, sz, ox: v.box.min[0], oy: v.box.min[1], oz: v.box.min[2],
-    grid, sky, blk, pKind, pFlags, pGroup, pElem, pTint, pColor, pEmit, pFluidH, elems,
+    grid, sky, blk, pKind, pFlags, pGroup, pElem, pTint, pColor, pEmit, pFluidH, pGlass, pTerrain, elems,
     atlas: atlasArr, atlasW: atlas ? atlas.width : 1, texRect,
     waterTex: texIndex('block/water_still'), lavaTex: texIndex('block/lava_still'),
     waterTint: [lin(wt[0]), lin(wt[1]), lin(wt[2])],
     bounds, brick, bsx, bsy, bsz,
   };
+}
+
+const strip = (id: string) => (id.startsWith('minecraft:') ? id.slice(10) : id);
+
+/** 1 = clear glass / pane, 2 = stained or tinted glass (keeps its colour), 0 = not glass */
+export function glassKind(id: string): number {
+  const n = strip(id);
+  if (n === 'glass' || n === 'glass_pane') return 1;
+  if (/(^|_)stained_glass(_pane)?$/.test(n) || n === 'tinted_glass') return 2;
+  return 0;
+}
+
+const TERRAIN_SOLID = new Set([
+  'grass_block', 'dirt', 'coarse_dirt', 'podzol', 'mycelium', 'rooted_dirt', 'mud', 'clay', 'sand', 'red_sand', 'gravel',
+  'stone', 'deepslate', 'tuff', 'calcite', 'andesite', 'diorite', 'granite', 'snow_block', 'powder_snow', 'packed_ice',
+  'terracotta', 'red_terracotta', 'orange_terracotta', 'yellow_terracotta', 'white_terracotta', 'light_gray_terracotta',
+  'brown_terracotta', 'sandstone', 'red_sandstone', 'bedrock', 'moss_block', 'pale_moss_block', 'dripstone_block',
+  'netherrack', 'soul_sand', 'soul_soil', 'end_stone', 'dirt_path', 'farmland', 'suspicious_sand', 'suspicious_gravel',
+  'magma_block', 'smooth_basalt', 'basalt', 'ice', 'blue_ice', 'mangrove_roots', 'muddy_mangrove_roots',
+]);
+const TERRAIN_PLANT_RE =
+  /^(short_grass|tall_grass|fern|large_fern|dead_bush|bush|firefly_bush|sweet_berry_bush|seagrass|tall_seagrass|kelp|kelp_plant|lily_pad|sugar_cane|snow|moss_carpet|pale_moss_carpet|leaf_litter|pink_petals|wildflowers|vine|glow_lichen|hanging_roots|dandelion|poppy|blue_orchid|allium|azure_bluet|\w+_tulip|oxeye_daisy|cornflower|lily_of_the_valley|sunflower|lilac|rose_bush|peony|torchflower|\w+_eyeblossom|cactus|cactus_flower|brown_mushroom|red_mushroom|short_dry_grass|tall_dry_grass|small_dripleaf|big_dripleaf|big_dripleaf_stem|pointed_dripstone)$/;
+
+/** natural terrain class used for section faces and elevation cutaways */
+export function terrainClass(id: string): number {
+  const n = strip(id);
+  if (TERRAIN_SOLID.has(n) || /^(deepslate_)?\w+_ore$/.test(n)) return 1;
+  if (n === 'water' || n === 'lava' || n === 'bubble_column') return 3;
+  if (TERRAIN_PLANT_RE.test(n)) return 2;
+  return 0;
 }
 
 function isFullAfterTransform(c: { m: number[]; t: number[]; from: number[]; to: number[] }): boolean {

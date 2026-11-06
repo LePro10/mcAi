@@ -7,6 +7,7 @@ import { solveConnections } from '../../src/core/connect.ts';
 import { AIR } from '../../src/core/blockstate.ts';
 import type { Facing, Vec3 } from '../../src/core/types.ts';
 import { MapSink, key, reg } from './helpers.ts';
+import { loadFactor } from '../load.ts';
 
 const C = (s: string) => reg.canonical(s);
 const run = (ops: unknown[], frame = Frame.identity(reg), sink = new MapSink(), seed?: number) => {
@@ -183,5 +184,5 @@ test('performance: 2M-block fill and a big sphere through executeOps', () => {
   );
   const ms = performance.now() - t0;
   assert.ok(sink.n > 2_000_000 + 500_000);
-  assert.ok(ms < 6000, `${ms} ms`);
+  assert.ok(ms < 6000 * loadFactor(), `${ms} ms`);
 });

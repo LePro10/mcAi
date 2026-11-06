@@ -25,6 +25,13 @@ export interface ScriptRequest {
   maxBlocks?: number;
   /** V8 old-space cap for the child, MiB (default 512) */
   memoryMb?: number;
+  /**
+   * natural ground heights for groundY(x,z) (world coordinates, x fastest; NaN/-32768 = none):
+   * ignores vegetation, leaves, tree logs and the job's own builds
+   */
+  ground?: { x0: number; z0: number; w: number; d: number; data: ArrayLike<number> };
+  /** generator name → function body (uses `params`), available to call(name, params) */
+  generators?: Record<string, string>;
 }
 
 export interface ScriptResult {
@@ -32,6 +39,10 @@ export interface ScriptResult {
   logs: string[];
   error?: string;
   ms: number;
+  /** generators defined by this script with define(name, code) */
+  defines?: Record<string, string>;
+  /** set() calls ignored because the position was protect()ed */
+  protectedSkips?: number;
 }
 
 export const SCRIPT_DEFAULTS = {
@@ -96,6 +107,8 @@ export async function runScript(req: ScriptRequest, reg: Registry): Promise<Scri
       : undefined,
     readBox: req.readBox,
     frame: req.frame,
+    ground: req.ground ? { x0: req.ground.x0, z0: req.ground.z0, w: req.ground.w, d: req.ground.d, data: Array.from(req.ground.data, (v) => (Number.isFinite(v) ? v : -32768)) } : undefined,
+    generators: req.generators,
     seed: (req.seed ?? 1) >>> 0,
     timeoutMs,
     maxBlocks,
@@ -153,7 +166,7 @@ export async function runScript(req: ScriptRequest, reg: Registry): Promise<Scri
   if (killedFor === 'output') return fail('the script produced too much output and was killed', ms);
 
   const text = Buffer.concat(out).toString('utf8');
-  let res: { ok: boolean; palette: string[]; pos: string; st: string; logs: string[]; error?: string } | null = null;
+  let res: { ok: boolean; palette: string[]; pos: string; st: string; logs: string[]; error?: string; defines?: Record<string, string>; protectedSkips?: number } | null = null;
   try {
     res = text ? JSON.parse(text) : null;
   } catch {
@@ -185,5 +198,11 @@ export async function runScript(req: ScriptRequest, reg: Registry): Promise<Scri
   const logs = Array.isArray(res.logs) ? res.logs.map(String).slice(0, 400) : [];
   const out2: ScriptResult = { entries, logs, ms };
   if (res.error) out2.error = String(res.error);
+  if (res.defines && typeof res.defines === 'object') {
+    const d: Record<string, string> = {};
+    for (const [k, v] of Object.entries(res.defines)) if (typeof v === 'string') d[String(k)] = v;
+    if (Object.keys(d).length) out2.defines = d;
+  }
+  if (typeof res.protectedSkips === 'number' && res.protectedSkips > 0) out2.protectedSkips = res.protectedSkips;
   return out2;
 }

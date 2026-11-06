@@ -38,7 +38,7 @@ Mixes: canopy `85%cherry_leaves,15%flowering_azalea_leaves`; garden path `40%gra
 
 ## Roof recipe
 - Hip or irimoya (hip-and-gable) roof in `deepslate_tile_stairs`, stairs facing toward the ridge; 2 overhang.
-- Upswept corners: at each corner the last 2 stairs step up 1 (use `deepslate_tile_slab` on top of the eave line) for the curved-eave look.
+- Upswept corners: roof op style swept_hip with lift 1, fascia `cherry_trapdoor`, brackets true (pavilions: finial).
 - Eave underside: `dark_oak_stairs[half=top]` facing toward the wall + `cherry_trapdoor` fascia.
 - Ridge: `deepslate_tile_slab` with end caps of `deepslate_tile_stairs` turned upward; small pavilions can use a single pyramid roof with a finial `lantern`.
 
@@ -48,7 +48,7 @@ Mixes: canopy `85%cherry_leaves,15%flowering_azalea_leaves`; garden path `40%gra
 
 ## Signature details
 - Cherry tree: curving `cherry_log` trunk (branches as diagonal lines of `cherry_wood`), layered blobs of `cherry_leaves[persistent=true]`, a few blocks drooping below the canopy edge, `pink_petals[flower_amount=4]` under the canopy thinning to 1–2 at the drip line.
-- Arched bridge: deck of `cherry_slab`/`cherry_stairs` following an arc, `cherry_fence` rails with `red_terracotta` posts, a `lantern` on the apex posts.
+- Arched bridge: bridge op, profile arch, deck `cherry_planks`, rail `cherry_fence`, post `red_terracotta`, lantern `lantern`.
 - Stone lantern: `stone_brick_wall` base, `polished_andesite` cap block, `lantern` inside a 1-block niche, `andesite_slab` roof.
 - Koi pond: irregular 2-deep `water`, edges of `mossy_cobblestone` and `moss_block`, `lily_pad`s, stepping stones of `andesite_slab`.
 - Bamboo screen: rows of `bamboo` 3–5 tall behind pavilions as a backdrop.
