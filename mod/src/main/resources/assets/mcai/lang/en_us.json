@@ -1,0 +1,23 @@
+{
+  "item.mcai.architect_wand": "Architect's Wand",
+  "item.mcai.architect_wand.tooltip1": "Left-click: corner 1 · Right-click: corner 2",
+  "item.mcai.architect_wand.tooltip2": "/mcai build <prompt> — let the AI build here",
+  "mcai.selection.corner": "Corner %s set to %s",
+  "mcai.selection.corner_size": "Corner %s set to %s (%s × %s × %s = %s blocks)",
+  "mcai.selection.cleared": "Selection cleared",
+  "mcai.selection.none": "No complete selection. Use the wand (/mcai wand) or /mcai pos1 + /mcai pos2.",
+  "mcai.selection.info": "%s → %s in %s (%s × %s × %s = %s blocks)",
+  "mcai.wand.summary": "Selection %s → %s (%s × %s × %s). Describe your build with /mcai build <prompt>",
+  "mcai.wand.help": "Left-click a block for corner 1, right-click a block for corner 2, then /mcai build <prompt>",
+  "mcai.wand.given": "Here is your Architect's Wand. Left-click: corner 1, right-click: corner 2.",
+  "mcai.status.connected": "Engine connected · %s world task(s) queued · %s job bar(s)",
+  "mcai.status.disconnected": "Engine not connected — start it with `mcai serve` (looking for ~/.mcai/engine.json)",
+  "mcai.build.queued": "Build request sent (job %s). Watch the boss bar for progress.",
+  "mcai.job.state.queued": "queued",
+  "mcai.job.state.thinking": "thinking…",
+  "mcai.job.state.reviewing": "reviewing…",
+  "mcai.job.state.building": "building…",
+  "mcai.job.state.done": "done",
+  "mcai.job.state.failed": "failed",
+  "mcai.job.state.cancelled": "cancelled"
+}

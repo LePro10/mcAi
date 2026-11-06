@@ -1,0 +1,22 @@
+{
+	"schemaVersion": 1,
+	"id": "mcai",
+	"version": "${version}",
+	"name": "mcAI — AI Architect",
+	"description": "An AI architect for Minecraft: describe a build, the mcAI engine designs it and this mod places it in the world.",
+	"authors": ["mcAI contributors"],
+	"contact": {},
+	"license": "MIT",
+	"icon": "assets/mcai/icon.png",
+	"environment": "*",
+	"entrypoints": {
+		"main": ["dev.mcai.McaiMod"],
+		"client": ["dev.mcai.client.McaiClient"]
+	},
+	"depends": {
+		"fabricloader": ">=0.20.1",
+		"minecraft": "~26.3",
+		"java": ">=25",
+		"fabric-api": "*"
+	}
+}

@@ -1,0 +1,31 @@
+pluginManagement {
+	repositories {
+		maven {
+			name = 'Fabric'
+			url = 'https://maven.fabricmc.net/'
+		}
+		mavenCentral()
+		gradlePluginPortal()
+	}
+}
+
+rootProject.name = 'mcai'
+
+// ---------------------------------------------------------------------------------------
+// Optional local Minecraft mirror (tools/mc-mirror.mjs) for networks that block Mojang's
+// hosts. OFF by default: normal builds download from Mojang exactly like any Fabric mod.
+// Enable with env MCAI_MC_MIRROR=http://127.0.0.1:8790 or -Pmcai.mcMirror=... (tools/mcgradle.sh
+// does this automatically). The mirror only serves files that tools/mc-fetch.mjs verified.
+// Loom reads these "loom_*" extra properties when its repository plugin is applied, so they
+// must be set before the project's build script runs.
+// ---------------------------------------------------------------------------------------
+def mcMirror = System.getenv('MCAI_MC_MIRROR') ?: providers.gradleProperty('mcai.mcMirror').getOrNull()
+if (mcMirror) {
+	mcMirror = mcMirror.replaceAll('/+$', '')
+	logger.lifecycle("mcai: using local Minecraft mirror ${mcMirror}")
+	gradle.beforeProject { p ->
+		p.ext.loom_libraries_base = "${mcMirror}/libraries/"
+		p.ext.loom_resources_base = "${mcMirror}/resources/"
+		p.ext.mcai_mc_mirror = mcMirror
+	}
+}

@@ -158,15 +158,16 @@ Binary arrays are base64 of little-endian typed arrays.
 ### Engine → Mod (requests the mod must answer)
 | type | payload → response |
 |---|---|
-| `get_blocks` | `dimension, box` → `{ palette, data: b64(Uint16) }` |
-| `set_blocks` | `dimension, palette, positions: b64(Int32 xyz), states: b64(Uint16), updateShapes, animate, maxPerTick` → `{ placed, unchanged, failed, previous: { palette, states: b64 } }` |
-| `heightmap` | `dimension, x0,z0,x1,z1, kind` → `{ data: b64(Int16) }` |
-| `biomes` | `dimension, box, step` → `{ palette, data: b64(Uint16) }` |
-| `entities` | `dimension, box` → `{ entities: EntityInfo[] }` |
+| `get_blocks` | `dimension, box, blockEntities?` → `{ palette, data: b64(Uint16) }` (palette[0] = air; max 2^25 blocks). With `blockEntities: true` palette entries of block-entity blocks carry their SNBT (`minecraft:chest[...]{Items:[...]}`) |
+| `set_blocks` | `dimension, palette, positions: b64(Int32 xyz), states: b64(Uint16), updateShapes, animate, maxPerTick` → `{ placed, unchanged, failed, previous: { palette, states: b64 }, shapeUpdates, ticks, ms, placeMs, shapeMs }` (max 4 194 304 blocks per message; the extra numbers are diagnostics) |
+| `heightmap` | `dimension, x0,z0,x1,z1, kind` → `{ x0, z0, x1, z1, data: b64(Int16) }` — x fastest; Y of the highest non-air block (`ocean_floor`: highest non-fluid motion-blocking block); empty column → minY − 1 |
+| `biomes` | `dimension, box, step` → `{ palette, data: b64(Uint16), step, size: [nx, ny, nz] }` — samples at `min + k·step` per axis, layout x fastest, then z, then y |
+| `entities` | `dimension, box` → `{ entities: EntityInfo[] }` (players excluded, max 10 000; only entities in loaded chunks) |
 | `players` | → `{ players: PlayerInfo[] }` |
-| `command` | `command, as?` → `{ ok, output }` (engine enforces the allowlist; mod double-checks). A failed command answers `ok:false` **with** `output` (distinguished from a transport error, which has `error`) |
-| `notify` | `PlayerNotification` → `{}` |
-| `job_update` | `jobId, player, state ('queued'\|'thinking'\|'building'\|'done'\|'failed'\|'cancelled'), progress 0..1, stage, detail, costUsd` → `{}` (mod renders bossbar/actionbar) |
+| `command` | `command, as?` → `{ ok, output }` (engine enforces the allowlist; mod double-checks). A failed command answers `ok:false` **with** `output` (distinguished from a transport error, which has `error`); a mod-side rejection also has `error`. Runs as the server, or positioned/rotated as player `as`; permissions are capped at game-master level |
+| `notify` | `PlayerNotification` (+ optional `subtitle` for `title`) → `{ delivered }` (number of players reached). `toast` = action bar + toast sound (vanilla has no server toasts) |
+| `job_update` | `jobId, player, state ('queued'\|'thinking'\|'building'\|'reviewing'\|'done'\|'failed'\|'cancelled'), progress 0..1, stage, detail, costUsd` → `{}` — one boss bar per job, shown to `player` (re-attached when they rejoin), removed 3 s after a final state and on engine disconnect |
+| `status` | → `{ tick, mspt, queuedTasks, jobBars, players }` — cheap health probe (mspt excludes mcAI's own end-of-tick work; use the tick rate) |
 
 `PlayerNotification = { target: string /* player name or '@a' */, kind: 'chat'|'actionbar'|'title'|'toast'|'sound', text?: string /* plain or JSON text component */, sound?: string }`
 
@@ -175,10 +176,30 @@ per block per message; big set_blocks are split into messages of ≤ 200 000 blo
 own compacted palette); `failed[].index` refers to the position inside that message. A newer mod
 connection replaces the older one (close code 4001). The engine pings every 30 s.
 
-Block placement in the mod: on the server thread, spread over ticks (`maxPerTick`, default
-20 000), flags = no neighbour updates / no drops during placement, then a second pass
-calling the vanilla shape update for placed blocks if `updateShapes`. Chunks are loaded
-as needed. Block entity data (SNBT) is applied.
+Block placement in the mod (`mod/…/world/PlaceBlocksTask.java`):
+
+* All block requests (`get_blocks`, `set_blocks`, `heightmap`, `biomes`) run on the server thread
+  through one **FIFO** tick queue (a read sent after a write sees it), at the end of each tick within
+  a wall-clock budget (`tickBudgetMs`, default 15 ms, `config/mcai.json`) and at most `maxPerTick`
+  placements per tick (default 20 000). `players`/`entities`/`status`/`notify`/`command` are not
+  queued behind builds. Chunks are loaded/generated as needed and held by a non-persistent ticket
+  until the task finishes.
+* Phase 1 records the previous state (+ block-entity SNBT) of every position for `previous`, then
+  places with flags `UPDATE_CLIENTS | UPDATE_SKIP_ALL_SIDEEFFECTS` (no neighbour updates, no drops,
+  no onPlace side effects — sand does not fall, containers do not spill) and applies block-entity
+  SNBT. Invalid states / out-of-height positions become per-index `failed` entries.
+* Phase 2 (`updateShapes`): vanilla `Block.updateFromNeighbourShapes` for every placed block, then
+  for existing blocks adjacent to the batch. **A shape result is only accepted if it keeps the block
+  id** — shape updates only change properties (fence/pane/wall connections, stair shapes,
+  waterlogging), they never delete a block (a lone door half or a plant on stone stays). Boundary
+  neighbours changed in phase 2 are not part of `previous`; undo with `updateShapes: true`
+  re-derives them.
+* `animate: 'layers'` orders by y, then distance from the batch's horizontal centre; `'sweep'` by
+  y, x, z; `'none'` keeps the input order (later duplicates win).
+* If the engine disconnects mid-job, running tasks still finish (the world stays consistent); their
+  answers are dropped. The mod reconnects (1 s … 30 s backoff) and sends a fresh `hello`.
+* Measured on the dedicated test server (`tools/mod-protocol-test.mjs`): 2 000 000 blocks in one
+  37 MB message in ≈ 11 s at a steady 20 TPS (≈ 3.5 s of server-thread work spread over ~220 ticks).
 
 ## 6. Engine HTTP surface (127.0.0.1 only)
 

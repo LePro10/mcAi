@@ -1,0 +1,23 @@
+{
+  "item.mcai.architect_wand": "Architektenstab",
+  "item.mcai.architect_wand.tooltip1": "Linksklick: Ecke 1 · Rechtsklick: Ecke 2",
+  "item.mcai.architect_wand.tooltip2": "/mcai build <Beschreibung> — die KI baut hier",
+  "mcai.selection.corner": "Ecke %s auf %s gesetzt",
+  "mcai.selection.corner_size": "Ecke %s auf %s gesetzt (%s × %s × %s = %s Blöcke)",
+  "mcai.selection.cleared": "Auswahl gelöscht",
+  "mcai.selection.none": "Keine vollständige Auswahl. Nutze den Stab (/mcai wand) oder /mcai pos1 + /mcai pos2.",
+  "mcai.selection.info": "%s → %s in %s (%s × %s × %s = %s Blöcke)",
+  "mcai.wand.summary": "Auswahl %s → %s (%s × %s × %s). Beschreibe dein Bauwerk mit /mcai build <Beschreibung>",
+  "mcai.wand.help": "Linksklick auf einen Block für Ecke 1, Rechtsklick für Ecke 2, dann /mcai build <Beschreibung>",
+  "mcai.wand.given": "Hier ist dein Architektenstab. Linksklick: Ecke 1, Rechtsklick: Ecke 2.",
+  "mcai.status.connected": "Engine verbunden · %s Weltaufgabe(n) in der Warteschlange · %s Fortschrittsbalken",
+  "mcai.status.disconnected": "Engine nicht verbunden — starte sie mit `mcai serve` (gesucht wird ~/.mcai/engine.json)",
+  "mcai.build.queued": "Bauauftrag gesendet (Job %s). Den Fortschritt zeigt die Bossleiste.",
+  "mcai.job.state.queued": "in der Warteschlange",
+  "mcai.job.state.thinking": "denkt nach…",
+  "mcai.job.state.reviewing": "prüft…",
+  "mcai.job.state.building": "baut…",
+  "mcai.job.state.done": "fertig",
+  "mcai.job.state.failed": "fehlgeschlagen",
+  "mcai.job.state.cancelled": "abgebrochen"
+}
