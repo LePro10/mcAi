@@ -1,0 +1,67 @@
+{
+  "id": "20261106-142345-9500ce",
+  "player": "Builder",
+  "prompt": "Build a modern luxury villa on the coast: cantilevered white concrete volumes, floor-to-ceiling glass, an infinity pool, a rooftop terrace with plants, and a minimalist interior.",
+  "state": "done",
+  "stage": "Done",
+  "detail": "I built the modern villa on the riverbank. The job used about $1.40 of the $6 budget. - **Cantilevered volumes:** the white concrete bedroo…",
+  "progress": 1,
+  "costUsd": 1.4325606,
+  "durationMs": 315025,
+  "createdAt": 1793971425138,
+  "startedAt": 1793971425139,
+  "endedAt": 1793971740164,
+  "anchor": [
+    0,
+    67,
+    0
+  ],
+  "facing": "north",
+  "allowedBox": {
+    "min": [
+      -28,
+      55,
+      -47
+    ],
+    "max": [
+      27,
+      106,
+      8
+    ]
+  },
+  "dimension": "minecraft:overworld",
+  "blocksChanged": 6927,
+  "toolCalls": 22,
+  "numTurns": 24,
+  "undoIds": [
+    "u9-mw50gdua"
+  ],
+  "finished": {
+    "summary": "I built a two-level modern villa on the riverbank. A white concrete bedroom wing sits crosswise on top of a glass-walled living pavilion and cantilevers 10 blocks out toward the water. A long infinity pool with a glass end wall sticks out over the river bank, and above it all are planted roof terraces and a lounge pavilion.",
+    "highlights": [
+      "Upper bedroom wing cantilevered 10 blocks west and 4 blocks south with no supports underneath",
+      "Infinity pool: a glass end wall over the river, lights set into the pool floor, one slender column",
+      "Floor-to-ceiling glass between quartz fins on the ground floor and the upper wing",
+      "Rooftop with a spruce deck, azalea/bamboo planters, sunbeds and a shaded lounge pavilion",
+      "Lower roof terrace with a fire pit, a plunge pool and floating quartz stairs",
+      "Minimalist interior: white L-shaped sofa, pale-oak dining table, black kitchen island, oak headboard wall; all lighting hidden in ceilings and floors"
+    ],
+    "suggestions": [
+      "Build op errors abort the whole batch on one bad op (e.g. an unknown mask). An option like `skipInvalid:true` that runs the valid ops and reports the bad ones would save a costly resend of 40+ ops.",
+      "The render shows glass and glass panes as nearly invisible, so glazed facades look like open frames and glass railings can't be checked. A slight tint/reflection or an edge outline for glass would help review.",
+      "The 'front' render view slices through the river at the edge of the box, so it looks like a cross-section. An option to render the elevation from outside the terrain cut (no section fill) would make facade review clearer.",
+      "A `slab_edge`/`fascia` op for modern builds (projecting rim around a floor plate, with an optional light strip) would speed up cantilever detailing.",
+      "terraform flatten with blend left a hard polished/dirt edge where the pad meets the riverbank; a `retaining_wall` option (material + follows the pad edge down to the ground) would be useful."
+    ],
+    "at": 1793971731872
+  },
+  "source": "cli",
+  "renders": [
+    "/tmp/mcai-run4/iso_se.png",
+    "/tmp/mcai-run4/iso_nw.png",
+    "/tmp/mcai-run4/front.png",
+    "/tmp/mcai-run4/top.png"
+  ],
+  "seed": 5,
+  "version": "2.0.0"
+}

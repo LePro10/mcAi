@@ -1,0 +1,325 @@
+#!/usr/bin/env bash
+# mcAI — one command for everything. Run `./mcai help`.
+set -euo pipefail
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=scripts/lib.sh
+source "$ROOT/scripts/lib.sh"
+
+MC_DIR="$("${NODE:-node}" "$ROOT/scripts/lib/common.mjs" mc-dir 2>/dev/null || echo "$HOME/Library/Application Support/minecraft")"
+MOD_VERSION=$(sed -n 's/^version=//p' "$ROOT/mod/gradle.properties")
+MOD_JAR="$ROOT/mod/build/libs/mcai-$MOD_VERSION.jar"
+GAME_DIR="$MC_DIR/profiles/mcai"
+
+usage() {
+  cat <<EOF
+${B}mcAI${N} — AI architect for Minecraft 26.3
+
+${B}Usage:${N} ./mcai <command> [options]
+
+  ${B}setup${N} [--dry-run] [--shaders] [--wait] [--seed-cache]
+                 everything once: engine deps, mod build, install into the Minecraft Launcher, checks
+  ${B}play${N} [--update] [--force]
+                 start the engine, install/update the mod, open the Minecraft Launcher
+  ${B}start${N} [--sim [--seed N]] [--no-open]
+                 start the engine + web viewer in the background (--sim: simulation world)
+  ${B}stop${N} [--all]      stop the engine (--all: also the dedicated server)
+  ${B}status${N}            engine, Minecraft connection, jobs, server, client install
+  ${B}build${N} "<prompt>" [--seed N --size 48x40x48 --out DIR …]
+                 headless AI build in a fresh simulation world (renders PNGs)
+  ${B}viewer${N}            open the web viewer of the running engine
+  ${B}logs${N} [engine|server|game] [-f]
+  ${B}server${N} <start|stop|restart|status|logs|console|cmd> …   dedicated multiplayer server (./mcai server help)
+  ${B}update${N} [--shaders|--no-shaders]
+                 rebuild the mod and reinstall it (client + server mods)
+  ${B}doctor${N}            detailed engine checks (node, claude, ports, mod connection)
+  ${B}uninstall${N} [--dry-run] [--restore-backup] [--purge]
+                 remove mcAI from the Minecraft Launcher (worlds are kept unless --purge)
+
+Files: ${D}~/.mcai${N} (engine state, logs, jobs) · ${D}${GAME_DIR/#$HOME/~}${N} (game profile) · docs/SETUP.md
+EOF
+}
+
+# ---------------------------------------------------------------- helpers
+
+launcher_running() { "$NODE" "$ROOT/scripts/lib/common.mjs" launcher-running; }
+client_installed() { [[ -f "$MCAI_HOME/client-install.json" ]]; }
+server_running() { MCAI_SERVER_DIR="${MCAI_SERVER_DIR:-$ROOT/server}" bash "$ROOT/scripts/server.sh" status >/dev/null 2>&1; }
+
+mod_stale() { # sources newer than the jar?
+  [[ -f "$MOD_JAR" ]] || return 0
+  [[ -n "$(find "$ROOT/mod/src" "$ROOT/mod/build.gradle" "$ROOT/mod/gradle.properties" -newer "$MOD_JAR" -type f -print -quit 2>/dev/null)" ]]
+}
+
+build_mod() {
+  need_java
+  step "Building the mod (Gradle, Java $("$JAVA_BIN" -version 2>&1 | head -n1 | sed -E 's/.*"([^"]+)".*/\1/'))"
+  local rc=0
+  (cd "$ROOT/mod" && JAVA_HOME="$JAVA_HOME_FOUND" ./gradlew build --offline -q) || rc=$?
+  if ((rc)) && [[ -x "$ROOT/tools/mcgradle.sh" ]]; then
+    warn "offline build failed — retrying through the local Minecraft mirror (tools/mcgradle.sh)"
+    rc=0; (cd "$ROOT" && JAVA_HOME="$JAVA_HOME_FOUND" tools/mcgradle.sh build -q) || rc=$?
+  fi
+  if ((rc)); then
+    warn "retrying online"
+    rc=0; (cd "$ROOT/mod" && JAVA_HOME="$JAVA_HOME_FOUND" ./gradlew build -q) || rc=$?
+  fi
+  ((rc == 0)) && [[ -f "$MOD_JAR" ]] || die "mod build failed" 1 "(cd mod && ./gradlew build) and read the error"
+  ok "$MOD_JAR"
+}
+
+write_engine_path() { # only used when the client install is skipped (setup-client writes it otherwise)
+  mkdir -p "$MCAI_HOME"; chmod 700 "$MCAI_HOME"
+  printf '%s\n%s\n' "$ENGINE_DIR" "$NODE" > "$MCAI_HOME/engine-path.tmp" && mv -f "$MCAI_HOME/engine-path.tmp" "$MCAI_HOME/engine-path"
+  ok "$MCAI_HOME/engine-path → $ENGINE_DIR"
+}
+
+open_launcher() {
+  case "$(uname)" in
+    Darwin)
+      open -b com.mojang.minecraftlauncher 2>/dev/null || open -a "Minecraft" 2>/dev/null || open -a "Minecraft Launcher" 2>/dev/null \
+        || die "Minecraft Launcher not found" 3 "install it from https://www.minecraft.net/download" ;;
+    *)
+      if command -v minecraft-launcher >/dev/null; then (nohup minecraft-launcher >/dev/null 2>&1 &)
+      else die "minecraft-launcher not found on PATH" 3 "install the official launcher, then start it and pick 'mcAI · Fabric 26.3'"; fi ;;
+  esac
+}
+
+# ---------------------------------------------------------------- commands
+
+cmd_setup() {
+  local dry="" client_args=() rc=0
+  while (($#)); do
+    case "$1" in
+      --dry-run) dry=1; client_args+=(--dry-run) ;;
+      --shaders|--no-shaders|--seed-cache|--skip-build) client_args+=("$1") ;;
+      --wait|--wait=*) client_args+=("$1") ;;
+      --java|--xmx) [[ $# -ge 2 ]] || die "$1 needs a value" 2; client_args+=("$1" "$2"); shift ;;
+      *) die "unknown option for setup: $1" 2 "./mcai help" ;;
+    esac
+    shift
+  done
+  printf '%smcAI setup%s%s\n' "$B" "$N" "${dry:+ ${C}(dry run — nothing is changed)${N}}"
+  step "Requirements"
+  need_node; ok "node $("$NODE" -v) ${D}($NODE)${N}"
+  need_engine_deps "${dry:+dry}"; [[ -z "$dry" ]] && ok "engine dependencies installed"
+  if JAVA_HOME_FOUND=$(java_home); then ok "java: $JAVA_HOME_FOUND"; else warn "Java 25 not found — needed to build the mod and run a server (https://adoptium.net)"; fi
+  check_claude || true
+
+  step "mcAI mod"
+  if [[ ! -f "$MOD_JAR" ]]; then
+    if [[ -n "$dry" ]]; then info "[dry-run] would build $MOD_JAR"; else build_mod; fi
+  else
+    ok "$MOD_JAR"
+    mod_stale && warn "the mod sources are newer than the jar — './mcai update' rebuilds and reinstalls it"
+  fi
+
+  step "Minecraft Launcher"
+  if [[ -f "$MC_DIR/launcher_profiles.json" ]]; then
+    "$NODE" "$ROOT/scripts/setup-client.mjs" --skip-build "${client_args[@]+"${client_args[@]}"}" || rc=$?
+    case $rc in
+      0) ;;
+      4) warn "the launcher is running — quit it (Cmd+Q) and run './mcai setup' again (or add --wait)" ;;
+      *) die "client installation failed (exit $rc)" "$rc" ;;
+    esac
+  else
+    warn "Minecraft Launcher not set up yet ($MC_DIR/launcher_profiles.json missing)"
+    info "install it (https://www.minecraft.net/download), start it once, log in, quit it — then: ./mcai setup"
+    if [[ -z "$dry" ]]; then write_engine_path; else info "[dry-run] would write $MCAI_HOME/engine-path"; fi
+    rc=3
+  fi
+
+  step "Engine check"
+  if [[ -z "$dry" ]]; then
+    (cd "$ENGINE_DIR" && "$NODE" src/cli.ts doctor) || warn "doctor reported problems (see above)"
+  else
+    info "[dry-run] would run: mcai doctor"
+  fi
+  echo
+  if [[ -n "$dry" ]]; then
+    printf '%s✔ Dry run complete%s — run %s./mcai setup%s to apply.\n' "$G$B" "$N" "$B" "$N"
+  elif ((rc == 0)); then
+    printf '%s✔ Setup complete.%s Next: %s./mcai play%s (singleplayer) · %s./mcai start --sim%s (try the viewer) · %s./mcai server start%s\n' "$G$B" "$N" "$B" "$N" "$B" "$N" "$B" "$N"
+  else
+    printf '%s! Setup finished with open steps (see above).%s\n' "$Y$B" "$N"
+  fi
+  return "$rc"
+}
+
+cmd_start() {
+  local mode=minecraft seed="" open=1
+  while (($#)); do
+    case "$1" in
+      --sim) mode=sim ;;
+      --seed) [[ $# -ge 2 ]] || die "--seed needs a value" 2; seed="$2"; shift ;;
+      --no-open) open=0 ;;
+      *) die "unknown option for start: $1" 2 "./mcai help" ;;
+    esac
+    shift
+  done
+  need_node
+  [[ "$mode" == minecraft ]] && check_claude >/dev/null || true
+  local again="start"; [[ "$mode" == sim ]] && again="start --sim"
+  MCAI_CMD="$again" engine_start "$mode" "$seed"
+  local url; url="$(engine_url)/"
+  printf '\n  %sViewer:%s %s\n' "$B" "$N" "$url"
+  [[ "$mode" == minecraft ]] && info "waiting for Minecraft: start the game with the mcAI profile (./mcai play) or a server (./mcai server start)"
+  ((open)) && open_url "$url" || true
+}
+
+cmd_stop() {
+  need_node
+  engine_stop
+  if [[ "${1:-}" == --all ]]; then bash "$ROOT/scripts/server.sh" stop; fi
+}
+
+cmd_status() {
+  need_node
+  printf '%smcAI status%s\n' "$B" "$N"
+  step "Engine"
+  local st
+  if engine_pid >/dev/null && st=$(engine_status); then
+    ok "running · pid $(json_get "$st" j.pid) · $(engine_url)/ · $(json_get "$st" 'j.backend') world · up $(json_get "$st" 'Math.round(j.uptimeSec/60)') min"
+    if [[ "$(json_get "$st" 'j.mod.connected')" == true ]]; then
+      ok "Minecraft connected · $(json_get "$st" '`mod ${j.mod.modVersion} · MC ${j.mod.mcVersion} · ${j.mod.serverType ?? ""} · world ${j.mod.world}`')"
+    elif [[ "$(json_get "$st" j.backend)" == sim ]]; then info "simulation world (no Minecraft needed)"
+    else info "no Minecraft connected yet"; fi
+    info "jobs: $(json_get "$st" 'j.jobs.active') active / $(json_get "$st" 'j.jobs.total') total"
+  else
+    info "not running ${D}(./mcai start or ./mcai play)${N}"
+  fi
+  step "Dedicated server"
+  bash "$ROOT/scripts/server.sh" status || true
+  step "Client"
+  if client_installed; then
+    ok "installed in the launcher: profile 'mcAI · Fabric 26.3' → ${GAME_DIR/#$HOME/~}"
+    if [[ -f "$MOD_JAR" && -f "$GAME_DIR/mods/$(basename "$MOD_JAR")" ]] && ! cmp -s "$MOD_JAR" "$GAME_DIR/mods/$(basename "$MOD_JAR")"; then
+      warn "the installed mod differs from mod/build/libs — ./mcai update"
+    fi
+  elif [[ -f "$MC_DIR/launcher_profiles.json" ]]; then warn "not installed yet — ./mcai setup"
+  else info "Minecraft Launcher not set up on this computer"; fi
+  launcher_running && info "Minecraft Launcher is open" || true
+  local cb; cb=$(claude_bin || true)
+  [[ -n "$cb" ]] && ok "claude: $cb" || warn "claude CLI not found (needed for AI builds)"
+}
+
+cmd_play() {
+  local update=0 force=0
+  while (($#)); do
+    case "$1" in
+      --update) update=1 ;;
+      --force) force=1 ;;
+      *) die "unknown option for play: $1" 2 "./mcai help" ;;
+    esac
+    shift
+  done
+  need_node
+  [[ -f "$MC_DIR/launcher_profiles.json" ]] || die "the Minecraft Launcher is not set up yet" 3 "install it (https://www.minecraft.net/download), start it once, log in, quit it — then: ./mcai setup"
+  if server_running && ((force == 0)); then
+    die "the dedicated mcAI server is running: singleplayer and server would share (and fight over) one engine" 1 "./mcai server stop   (or ./mcai play --force)"
+  fi
+  step "Engine"
+  check_claude >/dev/null || warn "claude CLI not found — the AI cannot build until it is installed"
+  MCAI_CMD=play engine_start minecraft
+
+  step "Client mod"
+  [[ -f "$MOD_JAR" ]] || build_mod
+  local installed="$GAME_DIR/mods/$(basename "$MOD_JAR")" need=0
+  client_installed || need=1
+  ((update)) && need=1
+  [[ -f "$installed" ]] && cmp -s "$MOD_JAR" "$installed" || need=1
+  if ((need)); then
+    if launcher_running; then
+      warn "the mcAI profile needs an install/update, but the launcher is open — please quit it (Cmd+Q); waiting up to 5 min …"
+      "$NODE" "$ROOT/scripts/setup-client.mjs" --skip-build --wait=5 || exit $?
+    else
+      "$NODE" "$ROOT/scripts/setup-client.mjs" --skip-build || exit $?
+    fi
+  else
+    ok "mcAI profile is up to date"
+  fi
+  mod_stale && warn "mod sources are newer than the built jar — './mcai update' to rebuild"
+
+  step "Minecraft Launcher"
+  open_launcher
+  ok "launcher opened — pick ${B}'mcAI · Fabric 26.3'${N} and press ${B}Play${N}"
+  info "in game: craft/get the Architect's Wand (/mcai help), right-click the ground, describe your build"
+  info "live view of the AI's work: $(engine_url)/"
+}
+
+cmd_update() {
+  local client_args=()
+  while (($#)); do
+    case "$1" in --shaders|--no-shaders) client_args+=("$1") ;; *) die "unknown option for update: $1" 2 ;; esac
+    shift
+  done
+  need_node
+  need_engine_deps
+  build_mod
+  if [[ -f "$MC_DIR/launcher_profiles.json" ]]; then
+    step "Client"
+    "$NODE" "$ROOT/scripts/setup-client.mjs" --skip-build "${client_args[@]+"${client_args[@]}"}" || exit $?
+  fi
+  local sdir="${MCAI_SERVER_DIR:-$ROOT/server}"
+  if [[ -f "$sdir/eula.txt" ]]; then
+    step "Server mods"
+    "$NODE" "$ROOT/scripts/setup-server.mjs" --dir "$sdir" || exit $?
+    server_running && warn "restart the server to load the new mod: ./mcai server restart"
+  fi
+  if engine_pid >/dev/null; then warn "restart the engine to pick up engine changes: ./mcai stop && ./mcai start (or play)"; fi
+  ok "update complete"
+}
+
+cmd_logs() {
+  local which="${1:-engine}" follow="${2:-}"
+  [[ "$which" == -f ]] && which=engine follow=-f
+  local f
+  case "$which" in
+    engine) f="$ENGINE_LOG" ;;
+    server) f="${MCAI_SERVER_DIR:-$ROOT/server}/logs/latest.log" ;;
+    game|client) f="$GAME_DIR/logs/latest.log" ;;
+    *) die "usage: ./mcai logs [engine|server|game] [-f]" 2 ;;
+  esac
+  [[ -f "$f" ]] || die "no log yet: $f"
+  if [[ "$follow" == -f ]]; then tail -n 50 -f "$f"; else tail -n 100 "$f"; fi
+}
+
+cmd_viewer() {
+  need_node
+  engine_running || die "the engine is not running" 1 "./mcai start   (or ./mcai start --sim)"
+  open_url "$(engine_url)/"
+  ok "$(engine_url)/"
+}
+
+cmd_build() {
+  need_node
+  need_engine_deps
+  [[ $# -gt 0 ]] || die 'usage: ./mcai build "<prompt>" [--seed N] [--size 48x40x48] [--out DIR]' 2
+  check_claude >/dev/null || die "the claude CLI is required for builds" 1 "npm install -g @anthropic-ai/claude-code && claude  (then /login)"
+  cd "$ROOT" && exec "$NODE" "$ENGINE_DIR/src/cli.ts" build "$@"
+}
+
+cmd_uninstall() {
+  need_node
+  local args=() a
+  for a in "$@"; do case "$a" in --dry-run|--restore-backup|--purge|--wait|--wait=*) args+=("$a") ;; *) die "unknown option for uninstall: $a" 2 ;; esac; done
+  "$NODE" "$ROOT/scripts/setup-client.mjs" --uninstall "${args[@]+"${args[@]}"}"
+}
+
+cmd="${1:-help}"; shift || true
+case "$cmd" in
+  setup) cmd_setup "$@" ;;
+  start) cmd_start "$@" ;;
+  stop) cmd_stop "$@" ;;
+  status) cmd_status ;;
+  play) cmd_play "$@" ;;
+  server) need_node; exec bash "$ROOT/scripts/server.sh" "$@" ;;
+  build) cmd_build "$@" ;;
+  viewer) cmd_viewer ;;
+  logs) cmd_logs "$@" ;;
+  update) cmd_update "$@" ;;
+  doctor) need_node; need_engine_deps; cd "$ENGINE_DIR" && exec "$NODE" src/cli.ts doctor "$@" ;;
+  uninstall) cmd_uninstall "$@" ;;
+  help|-h|--help) usage ;;
+  version|--version) echo "mcAI $MOD_VERSION" ;;
+  *) err "unknown command '$cmd'"; usage; exit 2 ;;
+esac

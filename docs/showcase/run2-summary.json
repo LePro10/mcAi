@@ -1,0 +1,67 @@
+{
+  "id": "20261106-142345-1ef19a",
+  "player": "Builder",
+  "prompt": "Build a serene Japanese temple complex: a three-tiered pagoda, a main hall with curved roofs, a torii gate path, cherry blossom trees, a koi pond with a wooden bridge and stone lanterns.",
+  "state": "done",
+  "stage": "Done",
+  "detail": "I built the full temple complex: three torii along the path, a red arched bridge over the river, the main hall with curved roofs, a red thr…",
+  "progress": 1,
+  "costUsd": 2.8561692000000014,
+  "durationMs": 688505,
+  "createdAt": 1793971425125,
+  "startedAt": 1793971425126,
+  "endedAt": 1793972113631,
+  "anchor": [
+    0,
+    66,
+    0
+  ],
+  "facing": "north",
+  "allowedBox": {
+    "min": [
+      -32,
+      54,
+      -55
+    ],
+    "max": [
+      31,
+      113,
+      8
+    ]
+  },
+  "dimension": "minecraft:overworld",
+  "blocksChanged": 28573,
+  "toolCalls": 58,
+  "numTurns": 64,
+  "undoIds": [
+    "u24-mw50oe15"
+  ],
+  "finished": {
+    "summary": "I built a Japanese temple complex on both banks of the river. On your side, a paved path runs through three vermilion torii, past stone lanterns and a purification basin, to a long arched red bridge. Across the river is the main hall, with two layers of swept tile roofs and a golden Buddha inside. The red three-tier pagoda and a koi pond with a wooden bridge are on your bank, all framed by cherry trees.",
+    "highlights": [
+      "Three-tier vermilion pagoda with swept tile roofs that lift at the corners, eave brackets and a gold-and-chain spire",
+      "Main hall with two swept roof layers, a red-columned veranda, paper-screen walls, tatami floor and a golden Buddha altar",
+      "Path of three torii that leads onto a long arched red bridge across the river",
+      "Koi pond with lily pads, mossy stone edges, an arched spruce bridge and four koi",
+      "11 cherry trees with fallen petals, stone lanterns and a purification basin under its own small roof"
+    ],
+    "suggestions": [
+      "BUG: clear mode:'vegetation' also removed river water (probably seagrass/kelp became air instead of water, or the water itself was counted as vegetation). The whole river in the box was drained and had to be refilled by hand. Waterlogged plants should turn into water, and plain water should never be touched.",
+      "The '#minecraft:logs' mask also matches stripped logs, so clearing 'stray trees' wiped out building posts (undo saved it). Add a 'natural_trees' mask: logs with leaves nearby that aren't part of this job's own edits. Or make clear mode:'vegetation' accept onlyUnbuilt:true.",
+      "Add a 'swept_hip' roof style to the roof op (concave profile, corner lift, skip box for stacked tiers, fascia, brackets). I wrote the same 40-line hip-roof function twice, for the pagoda and the hall. Params: sweep, lift, skipBox, fascia, brackets.",
+      "Add a tree-cleanup tool that removes leaves too far from wood and branches cut off from the trunk. I needed it after trimming canopies and had to write a BFS script for it.",
+      "Each script has to redefine groundY/SOFT. A built-in groundY(x,z) and soft-set in the script API would save tokens and avoid mistakes like groundY treating cherry_wood as ground, which put a lantern on a tree branch.",
+      "The 'dark' scan lists spots under tree canopies and on roof tiles together with real interior spots. A flag to skip leaf-roofed and non-walkable roof spots would make it easier to act on."
+    ],
+    "at": 1793972103181
+  },
+  "source": "cli",
+  "renders": [
+    "/tmp/mcai-run2/iso_se.png",
+    "/tmp/mcai-run2/iso_nw.png",
+    "/tmp/mcai-run2/front.png",
+    "/tmp/mcai-run2/top.png"
+  ],
+  "seed": 21,
+  "version": "2.0.0"
+}

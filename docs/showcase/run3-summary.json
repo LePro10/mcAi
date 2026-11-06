@@ -1,0 +1,67 @@
+{
+  "id": "20261106-142345-91e933",
+  "player": "Builder",
+  "prompt": "Erschaffe ein magisches Elfen-Baumhausdorf: drei riesige organische Bäume mit Häusern in den Kronen, verbunden durch geschwungene Hängebrücken, Wendeltreppen um die Stämme, Laternen und ein leuchtender Teich darunter.",
+  "state": "done",
+  "stage": "Done",
+  "detail": "Das Elfen-Baumhausdorf ist fertig gebaut und hat insgesamt etwa 2,71 $ von 7 $ Budget gekostet. - **Drei Riesenbäume:** Der Mutterbaum hint…",
+  "progress": 1,
+  "costUsd": 2.7643705999999995,
+  "durationMs": 660195,
+  "createdAt": 1793971425138,
+  "startedAt": 1793971425139,
+  "endedAt": 1793972085334,
+  "anchor": [
+    0,
+    67,
+    0
+  ],
+  "facing": "north",
+  "allowedBox": {
+    "min": [
+      -36,
+      55,
+      -63
+    ],
+    "max": [
+      35,
+      130,
+      8
+    ]
+  },
+  "dimension": "minecraft:overworld",
+  "blocksChanged": 30797,
+  "toolCalls": 29,
+  "numTurns": 34,
+  "undoIds": [
+    "u9-mw50ns7a"
+  ],
+  "finished": {
+    "summary": "Ein magisches Elfen-Baumhausdorf: drei riesige organische Bäume (der Mutterbaum mit zwei Ebenen) tragen sechs runde Kuppelhäuser mit Kupferdächern, verbunden durch drei geschwungene Hängebrücken. Wendeltreppen winden sich um die Stämme, und darunter leuchtet ein Mondteich mit Seelaternen, Amethyst-Inselchen und Glühbeeren.",
+    "highlights": [
+      "3 Riesenbäume mit Wurzelfächern, Ästen, Glühflechte und hängenden Glühbeeren-Ranken",
+      "6 runde Elfenhäuser (Calcit, Birkenrippen, hellblaue Fenster, grüne Kupferkegeldächer, eingerichtet mit Bett, Regal, Licht)",
+      "Wendeltreppen um alle Stämme, beim Mutterbaum bis zur zweiten Ebene",
+      "3 durchhängende Hängebrücken mit Laternenpfosten und Torpfosten mit Endstäben",
+      "Leuchtender Mondteich mit Seelaternen, Froschlichtern, Seegurken, Seerosen und Kristallinsel",
+      "Elfentor am Eingang, Laternenwege zu jeder Treppe, Blumenwiesen und Mondsteine"
+    ],
+    "suggestions": [
+      "run_script should support reusable modules/params across calls (e.g. `define('elvenTree', code)` then `call('elvenTree', {...})`) — I had to resend a 200-line tree generator three times with only the PARAMS line changed.",
+      "A `scan_region` mode 'floating' that lists small disconnected block clusters (not touching ground or other structure) would make the floating-junk check cheap instead of guessing from renders.",
+      "render_view boxes cut through structures and produce misleading 'floating cube' artifacts at the box edge; an option to render whole connected components or fade cut faces would help.",
+      "A built-in `bridge` op (from, to, width, sag|rise, deck/rail/post blocks, half-slab stepping) would cover the very common rope/arched bridge case; the cookbook recipe uses full-block steps that are not walkable without jumping — I used slab top/bottom stepping.",
+      "Cookbook recipe 14 (treehouse kit) should handle stairs arriving under a platform (headroom clearing creates the stairwell) and protect pods/houses from later leaf/limb placement; a 'protected zones' helper in the script API would be useful."
+    ],
+    "at": 1793972073675
+  },
+  "source": "cli",
+  "renders": [
+    "/tmp/mcai-run3/iso_se.png",
+    "/tmp/mcai-run3/iso_nw.png",
+    "/tmp/mcai-run3/front.png",
+    "/tmp/mcai-run3/top.png"
+  ],
+  "seed": 33,
+  "version": "2.0.0"
+}

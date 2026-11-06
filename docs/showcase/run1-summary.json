@@ -1,0 +1,67 @@
+{
+  "id": "20261106-141357-cbc715",
+  "player": "Builder",
+  "prompt": "Baue eine imposante mittelalterliche Burg auf diesem Gelände: Bergfried, Ringmauer mit Wehrgang, vier Ecktürme mit spitzen Dächern, Torhaus mit Fallgitter, kleiner Burghof mit Brunnen. Atemberaubend detailliert.",
+  "state": "done",
+  "stage": "Done",
+  "detail": "Die Burg ist fertig: Sie nimmt eine Fläche von 57×57 Blöcken ein und hat alles, was du dir gewünscht hast. Die letzten Ansichten im Tagesli…",
+  "progress": 1,
+  "costUsd": 1.9562144,
+  "durationMs": 532338,
+  "createdAt": 1793970837361,
+  "startedAt": 1793970837362,
+  "endedAt": 1793971369700,
+  "anchor": [
+    0,
+    66,
+    0
+  ],
+  "facing": "north",
+  "allowedBox": {
+    "min": [
+      -32,
+      54,
+      -55
+    ],
+    "max": [
+      31,
+      113,
+      8
+    ]
+  },
+  "dimension": "minecraft:overworld",
+  "blocksChanged": 44627,
+  "toolCalls": 42,
+  "numTurns": 45,
+  "undoIds": [
+    "u18-mw508g25"
+  ],
+  "finished": {
+    "summary": "Die Burg ist fertig. Auf einer Fläche von 57×57 Blöcken stehen ein Bergfried mit vier Ecktürmchen und Glockenturm sowie eine 3 Blöcke dicke Ringmauer mit Wehrgang und Maschikulis. Dazu kommen vier runde Ecktürme mit geschwungenen Spitzdächern, ein Torhaus mit halb hochgezogenem Fallgitter und ein Burghof mit überdachtem Brunnen, Pferdestall und Schmiede.",
+    "highlights": [
+      "Bergfried mit 4 Etagen: Thronsaal mit Tafeln, Bibliothek, Gemach mit Kamin, Rüstkammer; Glockenturm auf dem Dach",
+      "Vier Ecktürme mit Wehrerkern und geschwungenen Schieferdächern, alle über Leitern und den Wehrgang begehbar",
+      "Torhaus mit Flankentürmchen, Spitzbogen, Fallgitter, Mordlöchern und einer Wächternische mit Rüstung",
+      "Wehrgang mit Treppen aus dem Hof, Laternen auf dem Geländer und Zinnen auf Kragsteinen",
+      "Burghof mit Brunnen samt Dach, Pferdestall mit zwei Pferden und eine Schmiede mit Esse und Amboss",
+      "Mauerwerk mit Moos-, Riss- und Höhenverlauf, geböschter Mauerfuß, Ranken an der Schattenseite"
+    ],
+    "suggestions": [
+      "run_script roof() threw 'state.indexOf is not a function' when I passed fill:true (boolean). Either accept a boolean or document that fill expects a block id.",
+      "A replace op with from:'air' and a weighted pattern quietly put vines into empty air (707 floating blocks). A 'requires support' check for vines, wall banners and ladders, or an 'attach_to' mask (only air cells next to solid in a given direction), would stop this.",
+      "A cookbook recipe for a 'stair cone' (round tower roof built from stairs facing the centre, with a flare exponent and a soffit ring) would save every castle job from writing it by hand.",
+      "Have scan_region dark mode tag spots as 'outdoor under a distant overhang' or 'enclosed room', so the outdoor spots under cone eaves don't crowd out the real interior problems.",
+      "The command tool should warn when a summon position lands inside a solid block. My armor stand spawned inside the gatehouse wall and I had to carve a niche around it."
+    ],
+    "at": 1793971351499
+  },
+  "source": "cli",
+  "renders": [
+    "/tmp/mcai-run1/iso_se.png",
+    "/tmp/mcai-run1/iso_nw.png",
+    "/tmp/mcai-run1/front.png",
+    "/tmp/mcai-run1/top.png"
+  ],
+  "seed": 7,
+  "version": "2.0.0"
+}
