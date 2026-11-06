@@ -186,9 +186,10 @@ as needed. Block entity data (SNBT) is applied.
 
 ## 7. Agent tools (MCP server name `mcai`)
 
-Coordinates in tools are **world coordinates** unless `space: "local"` is given; local
-space = job anchor as origin, +z = "forward" (away from the player), +x = right,
-+y = up; the engine rotates positions **and block states** into world space.
+Coordinates in tools are **world coordinates** unless `space: "local"` is given. Local
+space = world space as seen by the player looking north: anchor = origin, +x = right,
++y = up, −z = forward (into the site), +z = toward the player (the front facade faces +z).
+The engine rotates positions **and block states** into world space (pure rotation).
 
 Perception: `get_context`, `scan_region`, `render_view` (returns PNG image),
 `find_blocks`, `block_info`, `heightmap`.
