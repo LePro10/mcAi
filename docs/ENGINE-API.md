@@ -295,30 +295,68 @@ export function placePrefab(name: string, at: Vec3, params: Record<string, unkno
 ### assets/assets.ts
 ```ts
 export class AssetStore {
-  static open(version?: string /* '26.3' */, cacheDir?: string /* ~/.mcai/cache */): Promise<AssetStore>; // downloads & caches
-  /** resolved geometry for a canonical state: list of cuboids (0..16 units) with per-face texture + uv, tint index, rotation applied */
-  geometry(state: string): BlockGeometry;
+  static open(version?: string /* '26.3' */, cacheDir?: string /* ~/.mcai/cache */): Promise<AssetStore>; // memoized; rejects if unavailable
+  static tryOpen(version?, cacheDir?): Promise<AssetStore | null>;          // never throws
+  constructor(source: AssetSource, version?: string);                       // e.g. new JarSource(path) / McmetaSource(dir)
+  /** resolved geometry (state may be non-canonical: missing props = registry defaults) */
+  geometry(state: string): BlockGeometry;   // see assets/geometry.ts
   textureAtlas(): { png: Buffer; width: number; height: number; uv(texture: string): [number, number, number, number] };
-  averageColor(state: string): [number, number, number, number];   // rgba 0..255
-  tint(kind: 'grass' | 'foliage' | 'water', biome?: string): [number, number, number];
+  atlasData(): AtlasData;                   // raw RGBA atlas + rects/flags (renderer)
+  averageColor(state: string): [number, number, number, number];   // rgba 0..255 (top face, tinted)
+  tint(kind: 'grass' | 'foliage' | 'dry_foliage' | 'water', biome?: string): [number, number, number];
+  tintFor(g: BlockGeometry, biome?: string): [number, number, number] | null;
 }
+interface BlockGeometry { state; cuboids: GeoCuboid[]; ao; layer: 'opaque'|'cutout'|'translucent'; fluid: 'water'|'lava'|null;
+  fluidLevel; fullCube; emission /*0..15*/; tint: rgb|null; tintKind; synthetic; flat; color: rgba; invisible }
+interface GeoCuboid { from; to /* element space 0..16 */; m: number[9]; t: number[3] /* element→block: p' = m·p + t */;
+  identity; faces: Partial<Record<Dir, GeoFace>> /* keyed by element-space dir */; shade }
+interface GeoFace { texture /* 'block/stone' */; uv: [u0,v0,u1,v1] /* 0..16 */; rotation; tint /* -1 none */; cullface: Dir|null /* block space */; uvlock }
 ```
+Sources (assets/sources.ts): client jar preferred (`MCAI_MC_JAR`, `~/Library/Application Support/minecraft/versions/<v>/<v>.jar`,
+`%APPDATA%/.minecraft`, `~/.minecraft`), else misode/mcmeta (`<v>-summary` block_definition + model, `<v>-atlas` blocks+entities
+atlases, `<v>-assets` colormaps) cached in `~/.mcai/cache/mcmeta/<v>/` (`MCAI_CACHE`, `MCAI_OFFLINE=1`, `MCAI_NO_JAR=1`).
+Tints follow vanilla BlockColors only (grass/foliage/dry_foliage/water colormaps, fixed birch/spruce/mangrove/lily pad,
+redstone power, stems, banner dye); everything else (cherry/azalea/pale oak leaves…) is untinted.
+
 ### render/render.ts
 ```ts
-export interface RenderOptions { width?: number; height?: number;
+export interface RenderOptions { width?: number /*1024*/; height?: number /*768*/;
   view?: 'iso_ne' | 'iso_nw' | 'iso_se' | 'iso_sw' | 'front' | 'back' | 'left' | 'right' | 'top' | 'orbit';
-  yaw?: number; pitch?: number; zoom?: number; focus?: Box;
-  shadows?: boolean; time?: 'day' | 'sunset' | 'night'; highlight?: Box; labels?: boolean }
+  yaw?: number;   // orbit: Minecraft yaw of the look direction (0 = looking south, 90 = west, 180 = north; default 135);
+                  // top: image-up = north rotated clockwise by yaw
+  pitch?: number; // elevation in degrees, positive looks down (iso 30, elevations 0, orbit 28)
+  zoom?: number; focus?: Box /* frame this box, default = non-air bounds */;
+  shadows?: boolean; time?: 'day' | 'sunset' | 'night'; highlight?: Box; labels?: boolean;
+  supersample?: number /* 1|2 */; ao?: boolean; ground?: boolean /* grid plane at volume bottom */; fog?: boolean;
+  biome?: string /* tints, default plains */; sun?: 'camera' | 'world'; parallel?: boolean; title?: string }
 export function renderVolume(v: BlockVolume, assets: AssetStore | null, opts?: RenderOptions): Promise<Buffer /* PNG */>;
+export function renderImage(v, assets, opts?): Promise<Img>;                       // RGBA for compositing
+export function contactSheet(v, assets, opts?: RenderOptions & { views?: ViewName[] }): Promise<Buffer>; // default 4 iso views, 2×2, labelled
+export function renderLayers(v, assets, ys: number[], opts?: { cell?; maxWidth?; columns?; ghost? }): Promise<Buffer>; // blueprint slices
 ```
+Views: camera position relative to the target — iso_se = from +x/+z, front = from +z (south) looking north, back = from −z,
+left = from −x (west), right = from +x. Orthographic except 'orbit' (perspective, fov 45°). Never fails without assets
+(flat palette colors + approximate shapes). Large images use a worker_threads pool (`MCAI_RENDER_THREADS`).
+
 ### sim/sim-backend.ts
 ```ts
 export class SimBackend implements WorldBackend {
-  constructor(opts?: { seed?: number; name?: string; persistDir?: string; registry?: Registry });
-  on(event: 'blocks' | 'notify' | 'command', cb: (...a: any[]) => void): void;  // 'blocks': (batch: EditBatch) after setBlocks
-  addPlayer(p: PlayerInfo): void;  save(): Promise<void>;
+  constructor(opts?: { seed?: number; name?: string; persistDir?: string /* auto-loads world.bin.gz */; registry?: Registry;
+                       players?: PlayerInfo[] /* default: Steve at spawn */ });
+  on(event: 'blocks' | 'notify' | 'command', cb: (...a: any[]) => void): void;  // 'blocks': (batch: EditBatch) final states after setBlocks
+  off(event, cb): void;
+  addPlayer(p: PlayerInfo): void;  removePlayer(name: string): void;
+  save(): Promise<void>;  load(): Promise<boolean>;      // modified sections + state, gzip binary
+  getBlocksSync(box): BlockVolume;  setBlocksSync(batch, opts?): SetBlocksResult;   // sync variants
+  biomeAt(x, y, z): string;  spawnPoint(): [number, number, number];
+  readonly state: { time; weather; gamerules; entities; biomeOverrides };  readonly notifications: PlayerNotification[];
 }
 ```
+`heightmap()` returns `HeightmapResult` (types.ts), y of the highest non-air block ('ocean_floor': ignores fluids/plants/leaves).
+`biomes()` samples at `min + i*step`, layout x fastest, then z, then y. Only `minecraft:overworld` exists.
+`runCommand` supports time, weather, summon, kill, fillbiome, setblock, fill, particle/playsound/stopsound (no-op), say/tellraw/title
+(→ notify), gamerule, difficulty; anything else → `{ ok:false }` with the supported list. `setBlocks` with `updateShapes` (default)
+runs core `solveConnections` on changed positions (neighbour changes are applied but not part of `previous`, like the real game).
 
 ---------------------------------------------------------------------------------------
 ## Owner: server-agent (engine/src/server, engine/src/agent, engine/src/cli.ts)

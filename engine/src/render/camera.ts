@@ -163,6 +163,6 @@ export function makeLighting(time: 'day' | 'sunset' | 'night', cam: Camera, sunM
     });
   return mk({
     sunCol: [1.55, 1.46, 1.3], ambCol: [0.6, 0.7, 0.92], blockCol: [1.2, 0.9, 0.55],
-    skyTop: linRgb(96, 150, 230), skyHor: linRgb(196, 222, 246), fogCol: linRgb(200, 222, 244), exposure: 0.55, night: false,
+    skyTop: linRgb(96, 150, 230), skyHor: linRgb(196, 222, 246), fogCol: linRgb(200, 222, 244), exposure: 0.5, night: false,
   });
 }

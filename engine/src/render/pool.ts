@@ -8,6 +8,8 @@ import type { RenderParams } from './trace.ts';
 let workers: Worker[] = [];
 let broken = false;
 let seq = 0;
+/** counters (diagnostics/tests) */
+export const poolStats = { parallelRenders: 0 };
 
 export function poolSize(): number {
   const env = Number(process.env.MCAI_RENDER_THREADS);
@@ -66,6 +68,7 @@ export async function renderParallel(scene: SceneData, params: RenderParams, fb:
           }),
       ),
     );
+    poolStats.parallelRenders++;
     return true;
   } catch {
     broken = true;

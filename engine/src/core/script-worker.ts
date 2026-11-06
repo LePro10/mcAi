@@ -293,6 +293,10 @@ async function main(): Promise<void> {
   const t0 = performance.now();
   const reg = new Registry(req.registry);
   const frame = req.frame ? new Frame(req.frame.anchor, req.frame.facing, reg) : null;
+  // default bounds for gradient patterns without from/to: the readable box, in script space
+  const patternBounds: Box | undefined = req.readBox
+    ? frame ? normBox(frame.toLocal(req.readBox.min), frame.toLocal(req.readBox.max)) : req.readBox
+    : undefined;
   const noise = createNoise(req.seed);
   const vol = req.volume ? { box: req.volume.box, palette: req.volume.palette, data: b64ToUint16(req.volume.data) } : null;
   const maxBlocks = req.maxBlocks;
@@ -352,7 +356,7 @@ async function main(): Promise<void> {
       f = () => st;
     } else {
       try {
-        f = compilePattern(str, reg, { seed: req.seed });
+        f = compilePattern(str, reg, { seed: req.seed, bounds: patternBounds });
       } catch {
         throw new Error(r.error);
       }
@@ -363,7 +367,7 @@ async function main(): Promise<void> {
   function specBlock(json: string): PatternFn {
     let f = patternCache.get('\u0001' + json);
     if (f) return f;
-    f = compilePattern(JSON.parse(json) as PatternSpec, reg, { seed: req.seed });
+    f = compilePattern(JSON.parse(json) as PatternSpec, reg, { seed: req.seed, bounds: patternBounds });
     patternCache.set('\u0001' + json, f);
     return f;
   }
