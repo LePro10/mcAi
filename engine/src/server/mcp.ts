@@ -16,7 +16,7 @@ export interface McpDeps {
   token: () => string;
   env: ToolEnv;
   /** job for the X-Mcai-Job header (undefined header → ad-hoc job or null) */
-  resolveJob(id: string | undefined): Job | null;
+  resolveJob(id: string | undefined, boxHeader?: string): Job | null;
   log?: (msg: string) => void;
 }
 
@@ -98,7 +98,8 @@ export async function handleMcp(req: IncomingMessage, res: ServerResponse, body:
   }
   const hdr = req.headers['x-mcai-job'];
   const jobId = Array.isArray(hdr) ? hdr[0] : hdr;
-  const job = deps.resolveJob(jobId || undefined);
+  const boxHdr = req.headers['x-mcai-box'];
+  const job = deps.resolveJob(jobId || undefined, Array.isArray(boxHdr) ? boxHdr[0] : boxHdr);
   if (!job) return jsonRpcError(res, 404, jobId ? `unknown job '${jobId}'` : 'missing X-Mcai-Job header');
   const server = createMcpServer(job, deps.env);
   const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined });

@@ -12,7 +12,9 @@ import { History } from '../core/session.ts';
 import { StructureLibrary } from '../core/schematic.ts';
 import type { AssetStore } from '../assets/assets.ts';
 import { renderVolume, type RenderOptions } from '../render/render.ts';
-import { boxVolume } from '../core/volume.ts';
+import { cropBelow, undergroundCropY } from '../render/crop.ts';
+import { batchBounds, boxVolume, normBox } from '../core/volume.ts';
+import { JobWorldCache } from './tools/world-cache.ts';
 import { ENGINE_VERSION, VIEWER_DIR, ensureHome, isPidAlive, paths, readEngineInfo, type Config } from './config.ts';
 import { ModBackend } from './mod-bridge.ts';
 import { handleMcp, tokenOk } from './mcp.ts';
@@ -52,6 +54,64 @@ class HttpError extends Error {
     super(msg);
     this.status = status;
   }
+}
+
+const TALL_PROMPT = /\b(tower|castle|cathedral|spire|lighthouse|skyscraper|tall|giant|huge|turm|burg|kathedrale|leuchtturm|riesig|hoch)\b/i;
+
+/**
+ * Effective allowed box for a job. Selection → selection + `selectionMargin` on every side (the
+ * selection stays the primary build area). Both selection and default boxes are extended down to
+ * the lowest ground / water bed in the footprint (−2, at most 32 below the floor) and up to at
+ * least `minBuildHeight` (+16 for tall prompts) above the floor. Returns notes for get_context.
+ */
+export async function resolveAllowedBox(
+  backend: WorldBackend,
+  req: JobRequest,
+  cfg: Config,
+  world: { minY: number; maxY: number },
+): Promise<{ box: Box; notes: string[] }> {
+  const notes: string[] = [];
+  let box: Box;
+  let floorY: number;
+  if (req.selection && isBox(req.selection)) {
+    const s = normalizeBox(req.selection);
+    const m = cfg.selectionMargin;
+    box = { min: [s.min[0] - m, s.min[1] - m, s.min[2] - m], max: [s.max[0] + m, s.max[1] + m, s.max[2] + m] };
+    floorY = s.min[1];
+  } else {
+    box = defaultAllowedBox(req.anchor, req.facing, req.size ?? cfg.defaultSize, cfg.depthBelow, world);
+    floorY = req.anchor[1];
+  }
+  const area = (box.max[0] - box.min[0] + 1) * (box.max[2] - box.min[2] + 1);
+  if (area <= 256 * 256) {
+    try {
+      const hm = await backend.heightmap(box.min[0], box.min[2], box.max[0], box.max[2], 'ocean_floor', req.dimension);
+      let lo = Infinity;
+      for (const h of hm.data) if (h > world.minY && h < lo) lo = h;
+      if (Number.isFinite(lo)) {
+        const want = lo - 2;
+        const limit = floorY - 32;
+        if (want < box.min[1]) {
+          const nm = Math.max(want, limit, world.minY);
+          if (nm < box.min[1]) {
+            notes.push(`box extended down to y=${nm} so foundations/piers reach the ground or water bed (lowest y=${lo})`);
+            box.min[1] = nm;
+          }
+        }
+        if (lo < box.min[1]) notes.push(`WARNING: ground/water bed below the box (down to y=${lo}) is NOT editable — piers and foundations cannot reach it; stay above y=${box.min[1]}`);
+      }
+    } catch {
+      /* heightmap unavailable: keep the base box */
+    }
+  }
+  const minTop = floorY + cfg.minBuildHeight - 1 + (TALL_PROMPT.test(req.prompt ?? '') ? 16 : 0);
+  if (box.max[1] < minTop) {
+    notes.push(`box extended up to y=${minTop} (low selection)`);
+    box.max[1] = minTop;
+  }
+  box.min[1] = Math.max(world.minY, box.min[1]);
+  box.max[1] = Math.min(world.maxY, box.max[1]);
+  return { box, notes };
 }
 
 /** Default allowed build box for a request without selection (pure rotation of a local box). */
@@ -140,7 +200,12 @@ export class Hub {
       history: this.history,
       structures: this.structures,
       maxBlocks: this.config.maxBlocksPerCall,
-      onWorldChange: (b, d) => this.broadcastBlocks(b, d),
+      onWorldChange: (b, d) => {
+        // player tool edits / undo: job read caches must not serve stale blocks there
+        const bb = batchBounds(b);
+        if (bb) JobWorldCache.foreignEdit(null, bb);
+        this.broadcastBlocks(b, d);
+      },
     });
     this.viewerAssets = new ViewerAssets({ assets: () => this.assets(), backend: () => this.backend(), config: this.config }); // viewer assets
     this.wireJobs();
@@ -302,11 +367,17 @@ export class Hub {
   }
 
   /** Ad-hoc job for MCP clients without X-Mcai-Job (manual sessions / debugging). */
-  private adhocJob(): Job {
-    if (this.adhoc && this.adhoc.active) return this.adhoc;
-    const anchor: Vec3 = [0, 64, 0];
+  private adhocJob(boxHeader?: string): Job {
+    // Optional X-Mcai-Box: x1,y1,z1,x2,y2,z2 (world) — a manual/repair session for that region.
+    const nums = boxHeader?.split(',').map(Number);
+    const box: Box | null =
+      nums && nums.length === 6 && nums.every(Number.isFinite)
+        ? normBox([nums[0], nums[1], nums[2]], [nums[3], nums[4], nums[5]])
+        : null;
+    if (this.adhoc && this.adhoc.active && !box) return this.adhoc;
+    const anchor: Vec3 = box ? [Math.round((box.min[0] + box.max[0]) / 2), box.min[1], Math.round((box.min[2] + box.max[2]) / 2)] : [0, 64, 0];
     const req: JobRequest = { player: { name: 'Developer' }, prompt: '(manual MCP session)', anchor, facing: 'north', source: 'api' };
-    const job = new Job(`adhoc-${Date.now().toString(36)}`, req, this.allowedBoxFor(req));
+    const job = new Job(`adhoc-${Date.now().toString(36)}`, req, box ?? this.allowedBoxFor(req));
     job.state = 'thinking';
     job.startedAt = Date.now();
     this.jobs.adopt(job);
@@ -335,7 +406,7 @@ export class Hub {
       anchor = [x, await groundY(this.backend(), this.registry(), x, z), z];
     }
     const size = parseSize(body.size);
-    return this.jobs.submit({
+    const base: JobRequest = {
       player,
       prompt: body.prompt,
       anchor,
@@ -348,7 +419,19 @@ export class Hub {
       effort: typeof body.effort === 'string' ? body.effort : undefined,
       budgetUsd: typeof body.budgetUsd === 'number' ? body.budgetUsd : undefined,
       timeoutMin: typeof body.timeoutMin === 'number' ? body.timeoutMin : undefined,
-    });
+    };
+    return this.jobs.submit(await this.withAllowedBox(base));
+  }
+
+  /** attach the effective allowed box (selection + margin + terrain extension) to a request */
+  async withAllowedBox(req: JobRequest): Promise<JobRequest> {
+    const w = this.worldInfo ?? { minY: -64, maxY: 319 };
+    try {
+      const { box, notes } = await resolveAllowedBox(this.backend(), req, this.config, w);
+      return { ...req, allowedBox: box, boxNotes: notes };
+    } catch {
+      return req;
+    }
   }
 
   private wireMod(): void {
@@ -369,7 +452,7 @@ export class Hub {
       const msg = m as unknown as BuildRequestMsg;
       if (!msg.player?.name || !isVec3(msg.anchor)) throw new Error('build_request needs player and anchor');
       await this.refreshWorldInfo();
-      const job = this.jobs.submit({
+      const job = this.jobs.submit(await this.withAllowedBox({
         player: msg.player,
         prompt: String(msg.prompt ?? ''),
         anchor: msg.anchor.map(Math.floor) as Vec3,
@@ -378,8 +461,8 @@ export class Hub {
         dimension: msg.player.dimension,
         options: { style: msg.options?.style, mode: msg.options?.mode === 'plan' ? 'plan' : 'build' },
         source: 'mod',
-      });
-      return { jobId: job.id, allowedBox: job.allowedBox };
+      }));
+      return { jobId: job.id, allowedBox: job.allowedBox, selection: job.req.selection ?? null };
     });
     this.mod.onRequest('job_control', async (m) => {
       const player = String(m.player ?? '');
@@ -521,7 +604,7 @@ export class Hub {
       return handleMcp(req, res, body, {
         token: () => this.token,
         env: this.env,
-        resolveJob: (id) => (id ? this.jobs.get(id) ?? null : this.adhocJob()),
+        resolveJob: (id, boxHeader) => (id ? this.jobs.get(id) ?? null : this.adhocJob(boxHeader)),
         log: (m) => this.log(m),
       });
     }
@@ -590,7 +673,8 @@ export class Hub {
     if (m === 'GET' && p === '/api/render') {
       const box = parseBoxParam(url.searchParams.get('box'));
       if (boxVolume(box) > 8_000_000) throw new HttpError(400, 'box too large');
-      const v = await this.backend().getBlocks(box);
+      let v = await this.backend().getBlocks(box);
+      if (url.searchParams.get('crop') !== '0') v = cropBelow(v, undergroundCropY(v, { keep: 3 }));
       const png = await renderVolume(v, await this.assets(), {
         view: (url.searchParams.get('view') ?? 'iso_se') as RenderOptions['view'],
         width: Number(url.searchParams.get('width')) || 800,
