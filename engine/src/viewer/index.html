@@ -1,0 +1,39 @@
+<!doctype html>
+<!-- Placeholder: the real three.js viewer replaces this file. -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>mcAI engine</title>
+<style>
+  body { font: 14px/1.5 system-ui, sans-serif; background: #15171c; color: #e8e8e8; margin: 2rem; }
+  code, pre { background: #22252c; padding: .1rem .3rem; border-radius: 4px; }
+  pre { padding: .8rem; max-height: 60vh; overflow: auto; }
+  input { width: 40rem; padding: .4rem; }
+</style>
+</head>
+<body>
+<h1>mcAI engine</h1>
+<p>The web viewer is not installed yet. Engine status:</p>
+<pre id="status">loading…</pre>
+<form id="f"><input id="prompt" placeholder="Build prompt (simulated wand)"> <button>Build</button></form>
+<pre id="log"></pre>
+<script type="module">
+  const s = await (await fetch('/api/status')).json();
+  document.getElementById('status').textContent = JSON.stringify(s, null, 2);
+  const { token } = await (await fetch('/api/session')).json();
+  const log = document.getElementById('log');
+  const ws = new WebSocket(`ws://${location.host}/viewer?token=${token}`);
+  ws.onmessage = (e) => {
+    const m = JSON.parse(e.data);
+    if (m.type === 'job') log.textContent = `[${m.job.state}] ${m.job.stage} ${m.job.detail}\n` + log.textContent;
+    if (m.type === 'agent' && m.ev.line) log.textContent = `  ${m.ev.kind}: ${m.ev.line}\n` + log.textContent;
+  };
+  document.getElementById('f').onsubmit = async (e) => {
+    e.preventDefault();
+    const prompt = document.getElementById('prompt').value;
+    const r = await fetch('/api/jobs', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ prompt }) });
+    log.textContent = JSON.stringify(await r.json()) + '\n' + log.textContent;
+  };
+</script>
+</body>
+</html>

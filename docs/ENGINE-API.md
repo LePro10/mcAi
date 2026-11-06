@@ -127,6 +127,49 @@ export function executeOps(ops: BuildOp[], ctx: OpContext): OpResult[];   // syn
 export class OpError extends Error { index: number }
 ```
 
+### core-geometry: implementation notes / additions (compatible with the above)
+* `registry.ts`: `RegistryError.suggestions: string[]`; extras `suggest(query, limit)`, `tagMembers(tag)`,
+  `levenshtein()`, `propOf(state, prop)`. Unknown ids → "Did you mean: …" (word overlap + edit distance +
+  alias table, e.g. `cobble`, `grass`, `chain` → `iron_chain`). `isFullSolid` is true for glass, leaves,
+  shulker boxes (the fence/wall/pane exceptions for leaves/pumpkins/melons/barrier/shulkers live in
+  connect.ts); `isTransparent` = not full or see-through (glass, leaves, ice, spawner, grates, …).
+* `transform.ts`: extras `rotateDir`, `mirrorDir`. Outputs are canonical; SNBT is kept (not rewritten).
+  **Deviation from vanilla:** stairs `shape` left/right is swapped on *every* mirror (vanilla only swaps when
+  the stair faces along the mirror axis — geometrically wrong); this keeps `mirror∘rot1 == rot3∘mirror`.
+  Also swaps `side_chain` (shelves) left/right on mirror.
+* `frame.ts`: extras `anchor`, `facing`, `isIdentity`, `toWorldInto(x,y,z,out)` (hot loops), `boxToLocal`.
+* `pattern.ts`: string weights `"60%a,40%b"` or `"3*a,1*b"`, entries may be `keep`; gradient `stops`,
+  noise/checker `blocks` entries may themselves be weighted strings; gradient accepts `from`/`to`
+  (axis coordinates) instead of `opts.bounds`. Extras: `PatternError`, `hash3`, `mulberry32`, `perlin3`,
+  `fbm3`, `uniformNoise3`, `splitTopLevel`, `patternBlocks`. Noise = 2-octave Perlin remapped to uniform.
+* `mask.ts`: extra keywords `transparent`, `opaque`, `replaceable`, `*`/`any`; `"a,b"` = any-of; `MaskError`.
+  `MaskFn` ignores coordinates (results cached per state string).
+* `shapes.ts`: round shapes include points within radius+0.5 (width = 2r+1; `.5` centers/radii give even
+  widths). Hollow = thinnest 6-connectivity-watertight shell; thickness = Manhattan distance to the outside.
+  `cylinder` extra `caps?: boolean` (hollow default = open tube), negative `height` grows downward;
+  `cone`/`pyramid` extra `thickness`; `cone` height < 0 points down; hollow cones/pyramids/half-ellipsoids
+  have no floor. **`pyramid.base` = center of the bottom layer** (use .5 for even sizes). `line.thickness` =
+  brush diameter; `curve.radius` = brush radius. `arch`: `from`/`to` = the two feet (same y, differ in x or
+  z only), ring rises `height` above from.y, `depth` extrudes along +perpendicular (negative = −).
+  `spiral` extra `startAngle`; `spiralCells(p, cb(x,y,z,ascendFacing))`. `roof` extra params `ends?: string`
+  (gable end walls) and `facing?: Facing` (shed high side); defaults overhang 1 (dome 0), pitch 1 (shed 0.5,
+  spire 3). Roof stairs shapes equal vanilla's `getStairsShape` result (stable under shape updates).
+  Extras: `emitRegion`, `bresenham3`, `sampleCurve`, `roofMaterials(reg, stairs, slab?)`.
+* `connect.ts`: `solveConnections` expands the 6 neighbours itself (callers need not pre-expand, but may);
+  only changed states are returned, SNBT preserved. Extras `Connector`, `connectorFor(reg)`,
+  `stairsShapeFor(...)`. Perf: 500k mixed blocks ≈ 0.4–0.6 s.
+* `multiblock.ts`: extras `expandMultiblocks(entries, reg)` (only partners at positions not explicitly
+  set), `isMultiblock`, `multiblockPartner`. pitcher_crop only expands at age ≥ 3.
+* `dsl.ts`: also exports `PatternSchema`, `MaskSchema`, `DSL_HELP` (cheat-sheet for the agent prompt —
+  prefer it over hand-written op docs). Ops: `set` (`pos` | `positions` | `entries:[[x,y,z,block],..]`),
+  `fill` (`box` or `from`+`to`), `ellipsoid`/`sphere` (center+radius or `box`), `cylinder` (or `box`),
+  `cone`, `pyramid` (base+size or footprint `box`), `torus`, `line`, `curve`, `polygon`, `arch`,
+  `spiral` (+`stairs`, `column`), `roof`, `replace` (`box`, `from` = mask of what to replace, default
+  `!air`, `to` = pattern; corner form `from`/`to` + `mask` + `block` also accepted), `clear`.
+  Boxes: `{min,max}` or `[[x,y,z],[x,y,z]]`, any corner order. `executeOps` re-validates each op with the
+  schema; `OpError.message` has no "op #i" prefix (callers add it). Patterns are evaluated in local
+  coordinates (gradients follow the op's local bounds); masks see the current world state.
+
 ---------------------------------------------------------------------------------------
 ## Owner: core-data  (engine/src/core/…)
 
@@ -202,6 +245,50 @@ export function listPrefabs(): { name: string; description: string; params: Reco
 export function placePrefab(name: string, at: Vec3, params: Record<string, unknown>, sink: BlockSink, reg: Registry, seed?: number): number;
 ```
 
+### core-data: implementation notes / additions (compatible with the above)
+* `volume.ts` extras: `paletteIndex, volForEach, volPaste, cloneVolume, compactVolume, boxExpand,
+  boxTranslate, boxContainsBox, boxToString, batchEntries, splitBatch, batchBounds, emptyBatch,
+  typedToB64/b64ToInt32/b64ToUint16`. `volGet` outside the box returns air; `volSet` outside throws.
+* `posmap.ts`: `PosMap<V>` — x/z packed exactly into one safe integer (|x|,|z| < 2^25), one Map per y.
+* `session.ts`: `SessionOptions.history?: History` (flush pushes its record automatically).
+  `set()` canonicalizes via the registry (throws RegistryError for bad states). Extras: `used`, `misses`,
+  `records`, `cached()`, `isKnown()`, `addVolume()`, `discard()`, `withBackendLock(backend, fn)`.
+  `FlushResult = { placed, unchanged, failed: {pos,reason}[], changed, connections, multiblock, batches,
+  ms, warnings, record: UndoRecord | null }`. Undo `before` comes from `SetBlocksResult.previous`
+  (never from a stale cache). Flush prefetches uncached blocks within Manhattan distance 2 of the
+  changes before solving connections; connection changes outside `bounds` or at unknown blocks are
+  skipped; multiblock partners never override explicitly set positions.
+  `new History({ limit?: 100 })`; `group(actor, sinceId, label)` merges `sinceId` **inclusive** and
+  everything newer; `mark(actor)` + `groupAfter(actor, mark, label)` merges everything pushed after
+  the mark (exclusive; `''` = whole stack). Also `redoList`, `clear`, `mergeRecords`.
+* `clipboard.ts`: `transformClipboard` applies mirror first, then rotation; the copy point keeps
+  its world position. `entities` items are `{ id, pos /* rel. to volume.box.min */, snbt? }`.
+  Extras: `copyFromSink, pasteBox, stackRegion(sink, box, count, dir, {gap, ignoreAir, mask}),
+  moveRegion(sink, box, delta, {fill, ignoreAir}), clipboardBlockCount`. structure_void is never pasted.
+* `schematic.ts`: `writeSponge(c, opts?)` / `writeStructureNbt(c, opts?)` take `{ dataVersion, name, author }`
+  (default DataVersion is a placeholder — 26.3's real value is unverified). Read results carry
+  `meta.format` and `meta.warnings` (unknown blocks → air, bad props → default state).
+  `new StructureLibrary(dir = ~/.mcai/structures, reg = Registry.loadDefault())`, all methods async:
+  `save(name, c, {description, tags, author}) → StructureMeta`, `load(name)`, `list({tag, query})`,
+  `has(name)`, `delete(name)`. Names are slugified (`structureSlug`), so no path traversal.
+  SNBT helpers live in `snbt.ts` (`nbtToSnbt, snbtToNbt, normalizeSnbt`).
+* `script.ts`: `ScriptRequest.memoryMb?` (default 512). Defaults: timeout 15 s (max 120 s), maxBlocks
+  500 000. When `error` is set, `entries` hold what was set before the failure (callers should
+  normally not apply them). Script API (globals): `set, get, fill(x1,y1,z1,x2,y2,z2,b), box/cuboid,
+  sphere/ellipsoid, cylinder, cone, pyramid, torus, line, curve, polygon, arch, spiral` (params as in
+  shapes.ts, `box` also accepts `{from,to}`; block = state string | pattern string | PatternSpec |
+  `(x,y,z) => state|null`), `roof(params)`, `positions(shape, params)`, `pattern(spec)`, `block(id, props)`,
+  `isAir`, `noise2, noise3, fbm(=fbm2), fbm3`, `rand, randInt, chance, choice, shuffle` (seeded;
+  `Math.random` is seeded too), `vec.*`, `log/console.log`, `info` ({space, frame, readBox, maxBlocks, seed}).
+  Coordinates are rounded to integers.
+* `analysis.ts`: `summarize(v, reg?, {byState?})`, `layerAscii(v, y, {byState?})` (rows = z north→south,
+  columns = x west→east, legend char → block id), `surfaceMap(v, reg, {solidOnly?, ignoreLeaves?})`,
+  `findDarkSpots(v, reg, {maxResults?: 5000})`, plus `lightEmission(state)`, `computeBlockLight(v, reg)`
+  and `diffVolumes(a, b, {maxChanges?}) → { changes: [x,y,z,from,to][], added, removed, replaced, truncated }`.
+* `prefabs.ts`: `at` = first air block above the ground. `params.facing` orients street furniture
+  (front faces +z in local space); nature prefabs get a random rotation. Default seed derives from
+  name + position. Extras: `resolvePrefabName` (aliases like `willow`, `palm`, `rock`).
+
 ---------------------------------------------------------------------------------------
 ## Owner: assets-render-sim
 
@@ -236,3 +323,24 @@ export class SimBackend implements WorldBackend {
 ---------------------------------------------------------------------------------------
 ## Owner: server-agent (engine/src/server, engine/src/agent, engine/src/cli.ts)
 Consumes everything above. Exposes the HTTP/WS/MCP surface from ARCHITECTURE §5–§8.
+
+```ts
+// server/hub.ts
+export class Hub { constructor(o: { config: Config; backend?: WorldBackend /* sim; omit = ModBackend */; port?: number /* 0 = any */;
+  runner?: Runner; writeEngineJson?: boolean; token?: string; viewerDir?: string; log?: (l: string) => void });
+  start(): Promise<void>; stop(): Promise<void>; readonly port: number; readonly token: string;
+  backend(): WorldBackend; registry(): Registry; readonly jobs: JobManager; readonly history: History;
+  submitJob(body: { prompt; player?; anchor?; facing?; selection?; size?; ... }, source?): Promise<Job>;
+  broadcast(msg: object): void /* to all /viewer sockets */ }
+// server/mod-bridge.ts
+export class ModBackend implements WorldBackend { attach(ws); connected; hello; blockRegistry; onRequest(type, handler);
+  request(type, payload, timeoutMs); jobUpdate(u); waitForConnection(ms) }   // events: 'hello', 'disconnect'
+// agent/jobs.ts
+export class JobManager { submit(req: JobRequest): Job; cancel(id, reason); ask(job, q, options, ms); answer(jobId, text);
+  get(id); list(); activeFor(player) }   // events: 'update' (Job), 'agent' (Job, AgentEvent), 'end' (Job)
+// agent/runner.ts
+export class ClaudeRunner implements Runner { constructor(o: { config; endpoint: () => {port, token}; agentDir?; killGraceMs? }) }
+export function buildInvocation(job, cfg, endpoint): { command; args; stdin; mcpConfigFile }
+```
+Env: `MCAI_HOME` (default ~/.mcai), `MCAI_CLAUDE` (claude executable; a `.mjs/.js/.ts` path is run with node),
+`MCAI_NO_ASSETS=1` (renders without textures, no downloads).

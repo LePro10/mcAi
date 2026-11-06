@@ -149,11 +149,11 @@ Binary arrays are base64 of little-endian typed arrays.
 ### Mod → Engine (events / requests)
 | type | payload |
 |---|---|
-| `hello` | `modVersion, mcVersion, world, serverType ('integrated'\|'dedicated'), registry (BlockRegistry), dimensions[]` |
-| `build_request` | `player: PlayerInfo, prompt, selection?: Box, anchor: Vec3, facing: 'north'\|'south'\|'east'\|'west', options: { style?, mode: 'build'\|'plan' }` → response `{ jobId }` |
-| `job_control` | `action: 'cancel'\|'undo'\|'redo'\|'confirm'\|'reject', player, jobId?` |
-| `player_reply` | `player, jobId, text` (answer to an agent question) |
-| `tool_request` | `player, tool, args` — non-AI WorldEdit-style operations issued by commands (copy/paste/rotate/undo...) executed by the engine |
+| `hello` | `modVersion, mcVersion, world, serverType ('integrated'\|'dedicated'), registry (BlockRegistry), dimensions: Array<string \| { id, minY, maxY, seaLevel? }>` (objects preferred; strings fall back to vanilla heights) → `{ engineVersion }` if it carries an `id` |
+| `build_request` | `player: PlayerInfo, prompt, selection?: Box, anchor: Vec3, facing: 'north'\|'south'\|'east'\|'west', options: { style?, mode: 'build'\|'plan' }` → response `{ jobId, allowedBox }` (or `ok:false, error` e.g. "already has an active job"). **anchor = the ground block the wand targeted** (local y=0 is that layer); facing = the player's horizontal look direction |
+| `job_control` | `action: 'cancel'\|'undo'\|'redo'\|'confirm'\|'reject', player, jobId?` → `{ message, jobId? }`. Without jobId the player's active (or latest) job is used. undo/redo = the player's undo stack (a whole AI job is one step). confirm/reject answer a pending `ask_player` with "yes"/"no" |
+| `player_reply` | `player, jobId?, text` (answer to an agent question; the agent asks in chat with numbered options → `/mcai reply <number or text>`) → `{ message }` |
+| `tool_request` | `player, tool, args` — non-AI WorldEdit-style operations executed by the engine in world space with per-player clipboards: `copy`/`cut {selection, origin?}`, `paste {at, ignoreAir?}`, `rotate {degrees}`, `flip {axis:'x'\|'z'}`, `undo`, `redo`, `set {selection, block}` (block = pattern), `replace {selection, from (mask), block}`, `clear {selection}`, `stack {selection, count, direction}`, `move {selection, offset}`, `save {name, description?}`, `load {name}`, `list {query?}` → `{ message, ... }` |
 
 ### Engine → Mod (requests the mod must answer)
 | type | payload → response |
@@ -164,11 +164,16 @@ Binary arrays are base64 of little-endian typed arrays.
 | `biomes` | `dimension, box, step` → `{ palette, data: b64(Uint16) }` |
 | `entities` | `dimension, box` → `{ entities: EntityInfo[] }` |
 | `players` | → `{ players: PlayerInfo[] }` |
-| `command` | `command, as?` → `{ ok, output }` (engine enforces the allowlist; mod double-checks) |
+| `command` | `command, as?` → `{ ok, output }` (engine enforces the allowlist; mod double-checks). A failed command answers `ok:false` **with** `output` (distinguished from a transport error, which has `error`) |
 | `notify` | `PlayerNotification` → `{}` |
 | `job_update` | `jobId, player, state ('queued'\|'thinking'\|'building'\|'done'\|'failed'\|'cancelled'), progress 0..1, stage, detail, costUsd` → `{}` (mod renders bossbar/actionbar) |
 
 `PlayerNotification = { target: string /* player name or '@a' */, kind: 'chat'|'actionbar'|'title'|'toast'|'sound', text?: string /* plain or JSON text component */, sound?: string }`
+
+Timeouts (engine side): 30 s default; get_blocks 30 s + 1 s per 20k blocks; set_blocks 60 s + 2 ms
+per block per message; big set_blocks are split into messages of ≤ 200 000 blocks (each with its
+own compacted palette); `failed[].index` refers to the position inside that message. A newer mod
+connection replaces the older one (close code 4001). The engine pings every 30 s.
 
 Block placement in the mod: on the server thread, spread over ticks (`maxPerTick`, default
 20 000), flags = no neighbour updates / no drops during placement, then a second pass
@@ -181,8 +186,25 @@ as needed. Block entity data (SNBT) is applied.
 * `WS /mod` → mod bridge (§5).
 * `POST /mcp` (+GET/DELETE per MCP Streamable HTTP) → MCP server. The job is
   identified by header `X-Mcai-Job: <jobId>`; auth via `Authorization: Bearer <token>`.
-* `GET /api/status`, `GET /api/jobs`, `POST /api/jobs` (start a build from the viewer —
-  simulated "wand"), `POST /api/jobs/:id/cancel`, `GET /api/structures`, `GET /api/feedback`.
+* `GET /api/status`, `GET /api/jobs`, `GET /api/jobs/:id[?log=N]`, `POST /api/jobs` (start a build
+  from the viewer — simulated "wand": `{prompt, player?, anchor?, facing?, selection?, size?: "48x40x48",
+  style?, mode?, model?, effort?, budgetUsd?}`), `POST /api/jobs/:id/cancel`, `POST /api/jobs/:id/reply {text}`,
+  `POST /api/undo|redo {player}`, `GET /api/structures`, `GET /api/feedback?limit=`,
+  `GET /api/blocks?box=x1,y1,z1,x2,y2,z2` (→ `{box, palette, data: b64 Uint16}`),
+  `GET /api/render?box=…&view=&width=&height=&time=` (→ PNG), `GET /api/session` (→ `{token}`; same-origin only,
+  used by the bundled viewer).
+* Security: every request must carry `Host: 127.0.0.1:<port>`/`localhost:<port>` (DNS-rebinding guard).
+  POSTs need the Bearer token or a same-origin `Origin`. `/mod` needs the token; `/viewer` the token
+  (`?token=`) or a same-origin Origin. The token persists in `~/.mcai/token`; `engine.json` (0600) is
+  removed on clean exit.
+* MCP is stateless (one server + transport per POST; GET/DELETE → 405). Requests without
+  `X-Mcai-Job` get an ad-hoc "Developer" job (manual sessions).
+* `WS /viewer` protocol: engine → viewer events `{type:'hello', status, jobs}`, `{type:'job', job}`
+  (JobSnapshot on every change), `{type:'agent', jobId, ev:{kind,line}}`, `{type:'blocks', dimension,
+  palette, positions: b64 Int32, states: b64 Uint16}` (after every engine edit/undo), `{type:'mod',
+  connected}`, `{type:'notify', target, kind, text}` (chat/actionbar sent to players). Viewer → engine requests `{id, type, ...}` answered with `{re: id, ok, ...}`:
+  `status`, `jobs`, `get_blocks {box}`, `heightmap {x0,z0,x1,z1}`, `players`, `start_job {prompt,…}`,
+  `cancel_job {jobId}`, `reply {jobId,text}`, `undo|redo {player}`.
 
 ## 7. Agent tools (MCP server name `mcai`)
 
@@ -198,7 +220,12 @@ generator), `terraform`, `place_prefab`, `clear`.
 Clipboard/library: `copy`, `paste`, `stack`, `move`, `save_structure`,
 `load_structure`, `list_structures`.
 Control: `undo`, `say`, `progress`, `ask_player`, `finish`.
-Exact schemas live in `engine/src/server/tools/*.ts` and in `agent/TOOLS.md`.
+Extra: `command` (allowlisted commands, local coordinates rotated incl. Rotation/Facing NBT).
+`scan_region` modes: summary | layers | surface | blocks | dark (spawnable dark spots).
+Saved structures are stored in **local orientation** (front facing +z). All tools default to
+`space: 'local'`. Every mutating call = one undo record; at job end the job's records are merged
+into one per player. Exact schemas live in `engine/src/server/tools/*.ts` (the MCP tool
+descriptions are the source of truth) and in `agent/TOOLS.md`.
 
 ## 8. Job lifecycle
 
@@ -206,7 +233,18 @@ Exact schemas live in `engine/src/server/tools/*.ts` and in `agent/TOOLS.md`.
 One active job per player (configurable global concurrency, default 2). A job = one
 `claude -p` process, cwd `agent/`, MCP config pointing at `/mcp` with the job header,
 `--strict-mcp-config`, built-in tools restricted to read-only + subagents, budget cap
-`--max-budget-usd`. stream-json events are mapped to `job_update` (stage text = the
+`--max-budget-usd`. Exact invocation (agent/runner.ts): `claude -p --model <opus> --effort <medium>
+--output-format stream-json --verbose --mcp-config <tmp file> --strict-mcp-config --setting-sources user
+--no-session-persistence --tools Read,Glob,Grep,Task,Agent,TaskCreate,TaskUpdate,TaskList,TodoWrite
+--allowedTools mcp__mcai,<same built-ins> --permission-mode dontAsk --max-budget-usd <n>
+--append-system-prompt <agent/SYSTEM.md + job context> [--agents <agent/agents.json>]`, prompt on stdin.
+(claude 2.1.318: subagent tool = `Task`, todo tools = `TaskCreate/TaskUpdate/TaskList`.) Env:
+`MCP_TOOL_TIMEOUT=1200000`. The job's log is `~/.mcai/jobs/<id>.jsonl` (stream events + every tool call
+with timing/blocks), summary `~/.mcai/jobs/<id>.json`; `finish(suggestions)` → `~/.mcai/feedback/<date>.jsonl`.
+Config `~/.mcai/config.json`: `model, effort, fallbackModel, budgetUsd (10), maxBlocksPerJob, maxBlocksPerCall,
+concurrency (2), jobTimeoutMin (45), commandAllowlist, port (7878), defaultSize {x,y,z} (48x40x48),
+depthBelow (12), claudePath, claudeExtraArgs`. Default allowed box without selection: local
+x ∈ [−w/2, w/2), y ∈ [−depthBelow, h), z ∈ [−(d−1−front), front] with front = min(8, d/6). stream-json events are mapped to `job_update` (stage text = the
 agent's latest `progress()` call or summarized tool activity). Cancel = SIGTERM the
 process group, the job's edits stay (player can `/mcai undo`). Every job is one undo
 group per player; `undo` reverts the whole job.
@@ -219,5 +257,7 @@ group per player; `undo` reverts the whole job.
 * Block limit per job (default 2 000 000), per call (default 500 000).
 * Command allowlist (summon decorative entities, fillbiome, particle, playsound,
   time/weather only if enabled). Never: op/deop/stop/ban/kick/execute-as-others/etc.
-* The script sandbox (`run_script`) runs in `node:vm` in a worker thread with a time
-  limit and no access to `require`, `process`, network, or the file system.
+* The script sandbox (`run_script`) runs in a separate Node child process per script with the
+  permission model (`--permission`, fs read only for engine/src/core, no fs write / child
+  processes / workers / network / addons) plus a `node:vm` context that only contains the
+  script API; hard timeout (SIGKILL), heap cap and block cap (see core/script.ts).
