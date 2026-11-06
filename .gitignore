@@ -1,5 +1,5 @@
 # Minecraft server runtime (worlds, logs, caches, plugins and downloaded jars)
-server/
+/server/
 
 # Node.js dependencies and build output
 node_modules/

@@ -1,39 +1,185 @@
 <!doctype html>
-<!-- Placeholder: the real three.js viewer replaces this file. -->
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<title>mcAI engine</title>
-<style>
-  body { font: 14px/1.5 system-ui, sans-serif; background: #15171c; color: #e8e8e8; margin: 2rem; }
-  code, pre { background: #22252c; padding: .1rem .3rem; border-radius: 4px; }
-  pre { padding: .8rem; max-height: 60vh; overflow: auto; }
-  input { width: 40rem; padding: .4rem; }
-</style>
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>mcAI — AI Architect</title>
+<meta name="color-scheme" content="dark">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cpath d='M16 3l12 6.5-12 6.5L4 9.5z' fill='%237ccf5a'/%3E%3Cpath d='M4 9.5l12 6.5v13L4 22.5z' fill='%238a5a36'/%3E%3Cpath d='M28 9.5L16 16v13l12-6.5z' fill='%236b4428'/%3E%3C/svg%3E">
+<link rel="stylesheet" href="css/viewer.css">
+<script type="importmap">
+{ "imports": {
+  "three": "/vendor/three/build/three.module.js",
+  "three/addons/": "/vendor/three/examples/jsm/"
+} }
+</script>
+<link rel="modulepreload" href="/vendor/three/build/three.module.js">
+<link rel="modulepreload" href="js/app.js">
 </head>
 <body>
-<h1>mcAI engine</h1>
-<p>The web viewer is not installed yet. Engine status:</p>
-<pre id="status">loading…</pre>
-<form id="f"><input id="prompt" placeholder="Build prompt (simulated wand)"> <button>Build</button></form>
-<pre id="log"></pre>
-<script type="module">
-  const s = await (await fetch('/api/status')).json();
-  document.getElementById('status').textContent = JSON.stringify(s, null, 2);
-  const { token } = await (await fetch('/api/session')).json();
-  const log = document.getElementById('log');
-  const ws = new WebSocket(`ws://${location.host}/viewer?token=${token}`);
-  ws.onmessage = (e) => {
-    const m = JSON.parse(e.data);
-    if (m.type === 'job') log.textContent = `[${m.job.state}] ${m.job.stage} ${m.job.detail}\n` + log.textContent;
-    if (m.type === 'agent' && m.ev.line) log.textContent = `  ${m.ev.kind}: ${m.ev.line}\n` + log.textContent;
-  };
-  document.getElementById('f').onsubmit = async (e) => {
-    e.preventDefault();
-    const prompt = document.getElementById('prompt').value;
-    const r = await fetch('/api/jobs', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ prompt }) });
-    log.textContent = JSON.stringify(await r.json()) + '\n' + log.textContent;
-  };
-</script>
+<div id="app" class="booting">
+  <canvas id="view" tabindex="0" aria-label="3D world view"></canvas>
+  <div id="vignette"></div>
+
+  <!-- top bar -->
+  <header id="topbar" class="glass ui">
+    <div class="brand"><span id="logo"></span><div class="brand-text"><b>mcAI</b><span data-i18n="app.tagline">AI Architect</span></div></div>
+    <div class="pills">
+      <span id="pill-world" class="pill"><i class="dot"></i><span class="pill-text">…</span></span>
+      <span id="pill-engine" class="pill subtle"><span class="pill-text">engine</span></span>
+    </div>
+    <div class="spacer"></div>
+    <div class="toolbar" role="toolbar">
+      <div class="seg" id="time-seg">
+        <button data-time="day" data-i18n-title="tool.day" data-icon="sun"></button>
+        <button data-time="sunset" data-i18n-title="tool.sunset" data-icon="sunset"></button>
+        <button data-time="night" data-i18n-title="tool.night" data-icon="moon"></button>
+      </div>
+      <button id="btn-layers" class="tb" data-i18n-title="tool.layers" data-icon="layers"></button>
+      <button id="btn-follow" class="tb" data-i18n-title="tool.follow" data-icon="follow"></button>
+      <button id="btn-fly" class="tb" data-i18n-title="tool.fly" data-icon="fly"></button>
+      <button id="btn-shadows" class="tb" data-i18n-title="tool.shadows" data-icon="shadow"></button>
+      <span class="sep"></span>
+      <button id="btn-shot" class="tb" data-i18n-title="tool.shot" data-icon="camera"></button>
+      <button id="btn-full" class="tb" data-i18n-title="tool.full" data-icon="expand"></button>
+      <button id="btn-ui" class="tb" data-i18n-title="tool.ui" data-icon="hide"></button>
+      <button id="btn-help" class="tb" data-i18n-title="tool.help" data-icon="keyboard"></button>
+      <button id="btn-lang" class="tb lang" data-i18n-title="tool.lang"><span id="lang-code">EN</span></button>
+    </div>
+  </header>
+
+  <!-- left: wand + history -->
+  <aside id="left" class="panel ui">
+    <section id="wand" class="card glass">
+      <div class="card-head">
+        <span class="card-icon wand-glow" data-icon="wand"></span>
+        <div><h2 data-i18n="wand.title">Architect's Wand</h2><p class="sub" data-i18n="wand.sub">Describe what the AI should build</p></div>
+      </div>
+      <div class="prompt-wrap">
+        <textarea id="prompt" rows="4" maxlength="4000" data-i18n-placeholder="wand.placeholder" spellcheck="true"></textarea>
+        <span class="kbd-hint" data-i18n="wand.hint">⌘/Ctrl + Enter to build</span>
+      </div>
+      <label class="field-label" data-i18n="wand.style">Style</label>
+      <div id="styles" class="chips"></div>
+      <label class="field-label" data-i18n="wand.size">Size</label>
+      <div id="sizes" class="seg wide"></div>
+      <label class="field-label" data-i18n="wand.anchor">Site</label>
+      <div class="anchor-row">
+        <button id="btn-pick" class="ghost"><span data-icon="target"></span><span id="pick-label" data-i18n="wand.pick">Pick on terrain</span></button>
+        <span id="anchor-text" class="mono muted"></span>
+        <button id="btn-facing" class="facing" data-i18n-title="wand.facing"><span class="facing-arrow" data-icon="arrow"></span><span id="facing-text">N</span></button>
+        <button id="btn-clear-anchor" class="icon-btn" title="×" data-icon="x" hidden></button>
+      </div>
+      <div class="actions">
+        <button id="btn-build" class="primary"><span data-icon="cube"></span><span data-i18n="wand.build">Build</span></button>
+        <button id="btn-plan" class="secondary"><span data-icon="plan"></span><span data-i18n="wand.plan">Plan only</span></button>
+      </div>
+    </section>
+    <section id="history" class="card glass grow">
+      <div class="card-head compact"><h3 data-i18n="history.title">Builds</h3><span id="history-count" class="count"></span></div>
+      <ul id="history-list" class="history"></ul>
+    </section>
+  </aside>
+
+  <!-- right: job -->
+  <aside id="right" class="panel ui">
+    <section id="job" class="card glass">
+      <div id="job-empty" class="empty">
+        <div class="empty-art" data-icon="cube"></div>
+        <h3 data-i18n="job.none">No build selected</h3>
+        <p data-i18n="job.noneSub">Start a build with the wand, or pick one from the history.</p>
+      </div>
+      <div id="job-body" hidden>
+        <div class="job-top">
+          <span id="job-state" class="badge"></span>
+          <span id="job-id" class="mono muted small"></span>
+          <span class="spacer"></span>
+          <button id="btn-flyto" class="icon-btn" data-i18n-title="job.flyTo" data-icon="target"></button>
+        </div>
+        <p id="job-prompt" class="job-prompt"></p>
+        <div class="progress"><div id="job-bar" class="bar"></div></div>
+        <div class="stage-row"><span id="job-stage" class="stage"></span><span id="job-pct" class="mono muted small"></span></div>
+        <p id="job-detail" class="detail"></p>
+        <div class="stats">
+          <div class="stat"><span data-icon="coin"></span><b id="st-cost">–</b><small data-i18n="job.cost">Cost</small></div>
+          <div class="stat"><span data-icon="clock"></span><b id="st-time">–</b><small data-i18n="job.time">Time</small></div>
+          <div class="stat"><span data-icon="cube"></span><b id="st-blocks">–</b><small data-i18n="job.blocks">Blocks</small></div>
+          <div class="stat"><span data-icon="tool"></span><b id="st-tools">–</b><small data-i18n="job.tools">Tool calls</small></div>
+        </div>
+        <div class="actions small">
+          <button id="btn-cancel" class="danger"><span data-icon="stop"></span><span data-i18n="job.cancel">Cancel</span></button>
+          <button id="btn-undo" class="ghost sq" data-i18n-title="job.undo" data-icon="undo"></button>
+          <button id="btn-redo" class="ghost sq" data-i18n-title="job.redo" data-icon="redo"></button>
+        </div>
+        <div id="job-finish" hidden>
+          <div id="job-error" class="callout error" hidden></div>
+          <div id="job-summary-wrap" hidden><h4 data-i18n="job.summary">Summary</h4><p id="job-summary"></p></div>
+          <div id="job-highlights-wrap" hidden><h4><span data-icon="star"></span><span data-i18n="job.highlights">Highlights</span></h4><ul id="job-highlights" class="bullets"></ul></div>
+          <div id="job-suggestions-wrap" hidden><h4><span data-icon="bulb"></span><span data-i18n="job.suggestions">Suggestions</span></h4><ul id="job-suggestions" class="bullets"></ul></div>
+        </div>
+      </div>
+    </section>
+    <section id="feeds" class="card glass grow">
+      <div class="tabs" role="tablist">
+        <button class="tab active" data-tab="thoughts" role="tab"><span data-icon="thought"></span><span data-i18n="job.thoughts">Agent thoughts</span><span id="thoughts-count" class="count"></span></button>
+        <button class="tab" data-tab="chat" role="tab"><span data-icon="chat"></span><span data-i18n="job.chat">Chat</span><span id="chat-count" class="count"></span></button>
+        <span class="spacer"></span>
+        <button id="btn-collapse-feed" class="icon-btn collapse" data-icon="chevron" title="⇵"></button>
+      </div>
+      <ol id="feed-thoughts" class="feed"></ol>
+      <ol id="feed-chat" class="feed" hidden></ol>
+    </section>
+  </aside>
+
+  <!-- layer slider -->
+  <div id="layers" class="glass ui" hidden>
+    <span id="layer-value" class="mono">Y</span>
+    <input id="layer-range" type="range" min="0" max="100" step="1" orient="vertical" aria-label="layer">
+  </div>
+
+  <!-- HUD -->
+  <div id="compass" class="ui" aria-hidden="true"><div class="rose"><b>N</b><span>E</span><span>S</span><span>W</span></div></div>
+  <div id="hud" class="ui mono"></div>
+  <div id="hint" class="glass" hidden></div>
+  <div id="actionbar" aria-live="polite"></div>
+  <div id="title-overlay"><div class="t1"></div><div class="t2"></div></div>
+  <div id="banner" hidden><span class="spinner"></span><span id="banner-text"></span></div>
+  <div id="toasts" aria-live="polite"></div>
+  <div id="loading"><div class="loader-card glass"><div class="cube-spin"></div><div><b id="loading-title">Loading world…</b><div class="progress thin"><div id="loading-bar" class="bar"></div></div><small id="loading-sub" class="muted"></small></div></div></div>
+
+  <!-- ask_player modal -->
+  <div id="ask" class="modal" hidden>
+    <div class="modal-card glass">
+      <div class="card-head"><span class="card-icon q" data-icon="question"></span><div><h2 data-i18n="job.question">The architect asks</h2><p id="ask-job" class="sub mono"></p></div></div>
+      <p id="ask-text" class="ask-text"></p>
+      <div id="ask-options" class="options"></div>
+      <form id="ask-form" class="ask-form"><input id="ask-input" data-i18n-placeholder="job.yourAnswer" autocomplete="off"><button class="primary" data-i18n="job.send">Send</button></form>
+      <button id="ask-later" class="link" data-i18n="job.later">Later</button>
+    </div>
+  </div>
+
+  <!-- help modal -->
+  <div id="help" class="modal" hidden>
+    <div class="modal-card glass">
+      <div class="card-head"><span class="card-icon" data-icon="keyboard"></span><h2 data-i18n="help.title">Keyboard shortcuts</h2><span class="spacer"></span><button class="icon-btn" data-close data-icon="x"></button></div>
+      <dl class="keys">
+        <dt><kbd>B</kbd></dt><dd data-i18n="help.b"></dd>
+        <dt><kbd>⌘</kbd><kbd>↵</kbd></dt><dd data-i18n="help.enter"></dd>
+        <dt><kbd>Esc</kbd></dt><dd data-i18n="help.esc"></dd>
+        <dt><kbd>L</kbd></dt><dd data-i18n="help.l"></dd>
+        <dt><kbd>[</kbd><kbd>]</kbd></dt><dd data-i18n="help.brackets"></dd>
+        <dt><kbd>F</kbd></dt><dd data-i18n="help.f"></dd>
+        <dt><kbd>G</kbd></dt><dd data-i18n="help.g"></dd>
+        <dt><kbd>T</kbd></dt><dd data-i18n="help.t"></dd>
+        <dt><kbd>P</kbd></dt><dd data-i18n="help.p"></dd>
+        <dt><kbd>H</kbd></dt><dd data-i18n="help.h"></dd>
+        <dt><kbd>2×</kbd><kbd>Click</kbd></dt><dd data-i18n="help.dbl"></dd>
+        <dt><kbd>?</kbd></dt><dd data-i18n="help.q"></dd>
+      </dl>
+    </div>
+  </div>
+</div>
+<noscript>mcAI viewer needs JavaScript.</noscript>
+<script type="module" src="js/app.js"></script>
 </body>
 </html>
