@@ -5,6 +5,10 @@ import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import dev.mcai.McaiMod;
+import dev.mcai.build.BuildService;
+import dev.mcai.build.JobTracker;
+import dev.mcai.build.StatusService;
+import dev.mcai.notify.ChatDecorator;
 import dev.mcai.command.CommandPolicy;
 import dev.mcai.config.EngineEndpoint;
 import dev.mcai.config.McaiConfig;
@@ -52,9 +56,13 @@ public final class Bridge implements EngineClient.Listener {
 	private final BridgeContext ctx;
 	private final JobBossBars bossBars;
 	private final Notifier notifier;
+	private final JobTracker jobs;
+	private final BuildService builds;
+	private final StatusService status;
 	private final Map<String, RequestHandler> handlers = new HashMap<>();
 	private final Map<String, CompletableFuture<JsonObject>> pending = new ConcurrentHashMap<>();
 	private final AtomicLong ids = new AtomicLong();
+	private final java.util.concurrent.atomic.AtomicBoolean pumpQueued = new java.util.concurrent.atomic.AtomicBoolean();
 	private volatile JsonObject registryCache;
 
 	public Bridge(MinecraftServer server, McaiConfig config) {
@@ -64,8 +72,12 @@ public final class Bridge implements EngineClient.Listener {
 		this.workers = Executors.newFixedThreadPool(2, r -> daemon(r, "mcai-engine-worker"));
 		this.ctx = new BridgeContext(server, config, scheduler, workers);
 		this.bossBars = new JobBossBars(server);
-		this.notifier = new Notifier(server);
 		this.client = new EngineClient(config, io, this);
+		this.jobs = new JobTracker(server);
+		this.builds = new BuildService(this, config);
+		this.status = new StatusService(server, config, client::isConnected, client::endpoint, jobs, builds);
+		this.jobs.onChange(status::broadcast);
+		this.notifier = new Notifier(server, new ChatDecorator(jobs, status));
 
 		new BlockHandlers(ctx).register(handlers);
 		new QueryHandlers(ctx, bossBars::count).register(handlers);
@@ -78,6 +90,7 @@ public final class Bridge implements EngineClient.Listener {
 		}));
 		handlers.put("job_update", r -> ctx.onServer(() -> {
 			bossBars.update(r);
+			jobs.update(r);
 			return new JsonObject();
 		}));
 	}
@@ -100,8 +113,38 @@ public final class Bridge implements EngineClient.Listener {
 		return client.isConnected();
 	}
 
+	public JobTracker jobs() {
+		return jobs;
+	}
+
+	public BuildService builds() {
+		return builds;
+	}
+
+	public StatusService status() {
+		return status;
+	}
+
 	public void start() {
 		client.start();
+		io.scheduleAtFixedRate(this::pump, 50, 50, TimeUnit.MILLISECONDS);
+	}
+
+	/**
+	 * While the server does not tick (singleplayer paused: pause menu, window in the background),
+	 * keep serving engine requests: run the world work as a server task between (skipped) ticks.
+	 * The world itself stays paused.
+	 */
+	private void pump() {
+		if (scheduler.size() == 0 || System.nanoTime() - scheduler.lastRunNanos() < 150_000_000L || !pumpQueued.compareAndSet(false, true)) {
+			return;
+		}
+		server.execute(() -> {
+			pumpQueued.set(false);
+			if (System.nanoTime() - scheduler.lastRunNanos() >= 150_000_000L) {
+				scheduler.tick();
+			}
+		});
 	}
 
 	/** Server thread, every tick. */
@@ -141,6 +184,7 @@ public final class Bridge implements EngineClient.Listener {
 			} else {
 				McaiMod.LOG.info("mcai: handshake complete (engine {})", reply.has("engineVersion") ? reply.get("engineVersion").getAsString() : "?");
 			}
+			server.execute(status::broadcast);
 		});
 	}
 
@@ -149,7 +193,11 @@ public final class Bridge implements EngineClient.Listener {
 		pending.values().forEach(f -> f.completeExceptionally(new IllegalStateException("engine disconnected: " + reason)));
 		pending.clear();
 		// Running world tasks finish normally (the world stays consistent); their answers are dropped.
-		server.execute(bossBars::clear);
+		server.execute(() -> {
+			bossBars.clear();
+			jobs.engineLost();
+			status.broadcast();
+		});
 	}
 
 	@Override

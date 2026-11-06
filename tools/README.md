@@ -8,6 +8,8 @@
 | `testserver.sh` | Headless Fabric dedicated server with Fabric API + the mod (`tools/testserver/`, gitignored) |
 | `mod-protocol-test.mjs` | Fake engine; integration test of the mod's engine bridge against the running test server |
 | `gen-mod-assets.mjs` | Generates the wand texture and the mod icon (pixel art, no dependencies) |
+| `client-gametest.sh` | Builds the mod and runs the client game tests in a real client window; screenshots → `docs/renders/mod-*.png` |
+| `fake-engine.mjs` | Fake engine with an HTTP control API (records mod traffic, pushes job_update/notify); used by the client tests |
 
 Versions: Minecraft **26.3**, Java 25, Fabric Loader **0.20.1**, Fabric Loom **1.19.3**
 (plugin id `net.fabricmc.fabric-loom`), Fabric API **0.165.2+26.3**, Gradle 9.8.2 (wrapper, sha256-pinned).
@@ -110,3 +112,25 @@ heightmap, biomes, players, entities, command allowlist rejections, invalid stat
 Last run (2026-11-06, filtered network, MacBook x86_64): **75/75 checks passed**;
 2 000 000 blocks (37 MB message) in 11.5 s round trip at 20.0 TPS
 (mod: 2.3 s placement + 1.2 s shape pass of server-thread time, spread over 219 ticks).
+
+## Client game tests (real client, automated)
+
+```sh
+tools/client-gametest.sh               # singleplayer: ~2–3 min, a client window opens
+tools/client-gametest.sh --dedicated   # + multiplayer permission test against tools/testserver
+```
+
+`fabric-client-gametest-api-v1` via Loom's `runClientGameTest` (source set `mod/src/gametest`). The mod
+itself auto-starts `tools/fake-engine.mjs` (config `engine.command`, isolated `MCAI_HOME` in the run dir),
+so the whole path is exercised without AI cost. Covered: engine auto-start + connect, key-binding
+conflicts, wand right-click → corner 2, client selection rendering, prompt GUI (B key, typing, style
+chip, Ctrl/Cmd+Enter) → asserted `build_request` (prompt, selection, anchor, facing, style, mode),
+job_update → HUD (3 thoughts) + boss bar, engine requests served while singleplayer is **paused**,
+Cancel from the GUI → `job_control`, chat buttons ([Undo] [Redo] [Open viewer], answer options →
+`player_reply`), German UI, engine crash → offline state with reason, and (with `--dedicated`) a non-op
+player is refused (GUI disabled, forged payload rejected server-side) until `op`.
+
+Test-only client settings (mixin in the gametest source set): no vsync, no pause on focus loss.
+Mojang services are pointed at a closed local port (`-Dminecraft.api.discovery.host`), so the client
+never waits on them. macOS can stall an OpenGL window that is completely hidden; the Gradle task has a
+4-minute timeout and the script retries a stalled run once.

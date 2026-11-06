@@ -1,5 +1,6 @@
 package dev.mcai.world;
 
+import dev.mcai.McaiMod;
 import it.unimi.dsi.fastutil.longs.LongArrayList;
 import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
 import java.util.ArrayList;
@@ -35,7 +36,7 @@ public final class PlaceBlocksTask implements TickTask {
 	}
 
 	public record Result(int placed, int unchanged, List<Failure> failed, List<String> previousPalette,
-			char[] previousStates, int shapeUpdates, int ticks, long nanos, long placeNanos, long shapeNanos) {
+			char[] previousStates, int shapeUpdates, int ticks, long nanos, long placeNanos, long shapeNanos, int chunkWaitTicks) {
 	}
 
 	private enum Phase { PLACE, SHAPES, BOUNDARY, DONE }
@@ -70,6 +71,7 @@ public final class PlaceBlocksTask implements TickTask {
 	private long startNanos;
 	private long placeNanos;
 	private long shapeNanos;
+	private int chunkWaitTicks;
 
 	public PlaceBlocksTask(ServerLevel level, BlockStates.Parsed[] palette, int[] positions, char[] states,
 			boolean updateShapes, String animate, int maxPerTick) {
@@ -98,6 +100,23 @@ public final class PlaceBlocksTask implements TickTask {
 	public boolean step(long deadline) {
 		if (ticks++ == 0) {
 			startNanos = System.nanoTime();
+			LongOpenHashSet chunks = new LongOpenHashSet();
+			for (int i = 0; i < n; i++) {
+				chunks.add(net.minecraft.world.level.ChunkPos.pack(positions[i * 3] >> 4, positions[i * 3 + 2] >> 4));
+			}
+			if (updateShapes) { // the shape pass also reads the neighbouring chunks
+				LongOpenHashSet ring = new LongOpenHashSet(chunks);
+				for (long k : chunks) {
+					int cx = net.minecraft.world.level.ChunkPos.getX(k);
+					int cz = net.minecraft.world.level.ChunkPos.getZ(k);
+					ring.add(net.minecraft.world.level.ChunkPos.pack(cx + 1, cz));
+					ring.add(net.minecraft.world.level.ChunkPos.pack(cx - 1, cz));
+					ring.add(net.minecraft.world.level.ChunkPos.pack(cx, cz + 1));
+					ring.add(net.minecraft.world.level.ChunkPos.pack(cx, cz - 1));
+				}
+				chunks = ring;
+			}
+			tickets.prefetch(chunks);
 		}
 		int ops = 0;
 		long entered = System.nanoTime();
@@ -121,7 +140,12 @@ public final class PlaceBlocksTask implements TickTask {
 						if (ops >= maxPerTick || ((ops & 63) == 0 && System.nanoTime() > deadline)) {
 							return false;
 						}
-						placeOne(order == null ? cursor : order[cursor]);
+						int i = order == null ? cursor : order[cursor];
+						if (!tickets.ready(positions[i * 3] >> 4, positions[i * 3 + 2] >> 4)) {
+							chunkWaitTicks++;
+							return false; // chunk is being loaded/generated off-thread
+						}
+						placeOne(i);
 						cursor++;
 						ops++;
 					}
@@ -133,7 +157,12 @@ public final class PlaceBlocksTask implements TickTask {
 						if ((ops++ & 63) == 0 && System.nanoTime() > deadline) {
 							return false;
 						}
-						int i = cursor++;
+						int i = cursor;
+						if (!tickets.readyAround(positions[i * 3], positions[i * 3 + 2])) {
+							chunkWaitTicks++;
+							return false;
+						}
+						cursor++;
 						long p = BlockPos.asLong(positions[i * 3], positions[i * 3 + 1], positions[i * 3 + 2]);
 						fixShape(p);
 						for (Direction d : DIRECTIONS) {
@@ -151,14 +180,21 @@ public final class PlaceBlocksTask implements TickTask {
 						if ((ops++ & 63) == 0 && System.nanoTime() > deadline) {
 							return false;
 						}
-						fixShape(boundary.getLong(cursor++));
+						long q = boundary.getLong(cursor);
+						if (!tickets.readyAround(BlockPos.getX(q), BlockPos.getZ(q))) {
+							return false;
+						}
+						cursor++;
+						fixShape(q);
 					}
 					phase = Phase.DONE;
 				}
 				case DONE -> {
 					tickets.releaseAll();
+					McaiMod.LOG.debug("mcai: set_blocks done: {} blocks, {} placed, {} shape updates, {} ticks, {} ms server time (place {} / shapes {}), {} chunk loads",
+							n, placed, shapeUpdates, ticks, (placeNanos + shapeNanos) / 1_000_000, placeNanos / 1_000_000, shapeNanos / 1_000_000, tickets.waits());
 					future.complete(new Result(placed, unchanged, failed, previousPalette, previous, shapeUpdates,
-							ticks, System.nanoTime() - startNanos, placeNanos, shapeNanos));
+							ticks, System.nanoTime() - startNanos, placeNanos, shapeNanos, chunkWaitTicks));
 					return true;
 				}
 			}
@@ -175,7 +211,6 @@ public final class PlaceBlocksTask implements TickTask {
 			return;
 		}
 		pos.set(x, y, z);
-		tickets.hold(x, z);
 		BlockState old = level.getBlockState(pos);
 		previous[i] = previousIndexOf(old.hasBlockEntity() ? BlockStates.withBlockEntity(level, pos, old) : BlockStates.canonical(old));
 		int s = states[i];
@@ -232,6 +267,11 @@ public final class PlaceBlocksTask implements TickTask {
 			previousIndex.put(state, c);
 		}
 		return c;
+	}
+
+	@Override
+	public String toString() {
+		return "set_blocks(" + n + " blocks, " + phase + " " + cursor + ")";
 	}
 
 	@Override

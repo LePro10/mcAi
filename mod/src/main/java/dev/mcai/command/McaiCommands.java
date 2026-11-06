@@ -9,7 +9,8 @@ import com.mojang.brigadier.context.CommandContext;
 import com.mojang.brigadier.exceptions.CommandSyntaxException;
 import dev.mcai.McaiMod;
 import dev.mcai.bridge.Bridge;
-import dev.mcai.handlers.QueryHandlers;
+import dev.mcai.build.BuildPermissions;
+import dev.mcai.net.EngineReplies;
 import dev.mcai.item.McaiItems;
 import dev.mcai.protocol.Json;
 import dev.mcai.selection.Selection;
@@ -25,8 +26,6 @@ import net.minecraft.core.Direction;
 import net.minecraft.network.chat.Component;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.item.ItemStack;
-import net.minecraft.world.phys.BlockHitResult;
-import net.minecraft.world.phys.HitResult;
 
 import static net.minecraft.commands.Commands.argument;
 import static net.minecraft.commands.Commands.literal;
@@ -100,13 +99,10 @@ public final class McaiCommands {
 		d.register(root);
 	}
 
-	/** Game masters, or the owner of a singleplayer world. */
+	/** Players need the AI-build permission (config buildPermissionLevel, singleplayer owner always); console always. */
 	private static boolean allowed(CommandSourceStack src) {
-		if (Commands.hasPermission(Commands.LEVEL_GAMEMASTERS).test(src)) {
-			return true;
-		}
 		ServerPlayer p = src.getPlayer();
-		return p != null && src.getServer().isSingleplayerOwner(p.nameAndId());
+		return p == null ? Commands.hasPermission(Commands.LEVEL_GAMEMASTERS).test(src) : BuildPermissions.canBuild(p, McaiMod.config());
 	}
 
 	// ------------------------------------------------------------------ local commands
@@ -147,37 +143,12 @@ public final class McaiCommands {
 
 	private static int build(CommandContext<CommandSourceStack> c, String mode) throws CommandSyntaxException {
 		ServerPlayer p = c.getSource().getPlayerOrException();
-		Selection sel = Selections.get(p);
-		boolean useSel = sel != null && sel.complete() && sel.dimension().equals(Dimensions.id(p.level()));
-		JsonObject req = new JsonObject();
-		req.add("player", QueryHandlers.describe(p));
-		req.addProperty("prompt", StringArgumentType.getString(c, "prompt"));
-		BlockPos anchor;
-		if (useSel) {
-			req.add("selection", sel.toBoxJson());
-			BlockPos a = sel.min();
-			BlockPos b = sel.max();
-			anchor = new BlockPos(Math.floorDiv(a.getX() + b.getX(), 2), a.getY(), Math.floorDiv(a.getZ() + b.getZ(), 2)); // bottom centre
-		} else {
-			anchor = lookTarget(p);
+		Bridge b = McaiMod.bridge();
+		if (b == null) {
+			return 0;
 		}
-		req.add("anchor", Json.array(anchor.getX(), anchor.getY(), anchor.getZ()));
-		req.addProperty("facing", Direction.fromYRot(p.getYRot()).getSerializedName());
-		JsonObject options = new JsonObject();
-		options.addProperty("mode", mode);
-		req.add("options", options);
-		return send(c, "build_request", req, r -> r.has("jobId")
-				? Msg.tr("mcai.build.queued", "Build request sent (job %s). Watch the boss bar for progress.", r.get("jobId").getAsString())
-				: null);
-	}
-
-	/** Anchor = the ground block the player looks at (up to 64 blocks), else the block below their feet. */
-	private static BlockPos lookTarget(ServerPlayer p) {
-		HitResult hit = p.pick(64.0, 0f, false);
-		if (hit instanceof BlockHitResult bh && hit.getType() == HitResult.Type.BLOCK) {
-			return bh.getBlockPos();
-		}
-		return p.blockPosition().below();
+		b.builds().request(p, StringArgumentType.getString(c, "prompt"), "auto", "M", true, mode);
+		return 1;
 	}
 
 	private static int jobControl(CommandContext<CommandSourceStack> c, String action) throws CommandSyntaxException {
@@ -188,8 +159,13 @@ public final class McaiCommands {
 
 	private static int forward(CommandContext<CommandSourceStack> c, String type, JsonObject payload) throws CommandSyntaxException {
 		ServerPlayer p = c.getSource().getPlayerOrException();
+		Bridge b = McaiMod.bridge();
+		if (b == null) {
+			return 0;
+		}
 		payload.addProperty("player", p.getGameProfile().name());
-		return send(c, type, payload, r -> null);
+		EngineReplies.forward(b, p, type, payload);
+		return 1;
 	}
 
 	private static int tool(CommandContext<CommandSourceStack> c, String tool, JsonObject args, boolean needsSelection) throws CommandSyntaxException {

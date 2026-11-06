@@ -1,6 +1,7 @@
 package dev.mcai.selection;
 
 import dev.mcai.item.McaiItems;
+import dev.mcai.net.ServerNetworking;
 import dev.mcai.world.Dimensions;
 import java.util.UUID;
 import net.minecraft.core.BlockPos;
@@ -32,7 +33,8 @@ public final class SelectionOutline {
 		for (ServerPlayer player : server.getPlayerList().getPlayers()) {
 			UUID id = player.getUUID();
 			Selection sel = Selections.all().get(id);
-			if (sel == null || !sel.dimension().equals(Dimensions.id(player.level()))) {
+			// mod clients draw a crisp outline themselves; particles are the fallback for vanilla clients
+			if (sel == null || ServerNetworking.hasMod(player) || !sel.dimension().equals(Dimensions.id(player.level()))) {
 				continue;
 			}
 			boolean holding = player.isHolding(McaiItems.ARCHITECT_WAND);

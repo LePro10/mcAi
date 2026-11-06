@@ -150,7 +150,7 @@ Binary arrays are base64 of little-endian typed arrays.
 | type | payload |
 |---|---|
 | `hello` | `modVersion, mcVersion, world, serverType ('integrated'\|'dedicated'), registry (BlockRegistry), dimensions: Array<string \| { id, minY, maxY, seaLevel? }>` (objects preferred; strings fall back to vanilla heights) → `{ engineVersion }` if it carries an `id` |
-| `build_request` | `player: PlayerInfo, prompt, selection?: Box, anchor: Vec3, facing: 'north'\|'south'\|'east'\|'west', options: { style?, mode: 'build'\|'plan' }` → response `{ jobId, allowedBox }` (or `ok:false, error` e.g. "already has an active job"). **anchor = the ground block the wand targeted** (local y=0 is that layer); facing = the player's horizontal look direction |
+| `build_request` | `player: PlayerInfo, prompt, selection?: Box, anchor: Vec3, facing: 'north'\|'south'\|'east'\|'west', options: { style?, mode: 'build'\|'plan', size? }, size?: {x,y,z}` (the mod's prompt GUI: `style` ∈ medieval/fantasy/japanese/modern/steampunk/nordic/desert/gothic/cozy, omitted for "auto"; without a wand selection the chosen size preset S/M/L/XL = 16³ / 32×24×32 / 48×40×48 / 96×64×96 is sent as `options.size` + `size` **and** as `selection` = the preset box laid out like the engine's default box) → response `{ jobId, allowedBox, selection }` (or `ok:false, error` e.g. "already has an active job"). `selection` = the player's selection (primary build area, `null` without one); `allowedBox` = what the agent may edit: selection + `selectionMargin` (config, default 8) on every side, extended down to the lowest ground/water bed in the footprint (−2, ≤ 32 below the floor) and up to ≥ `minBuildHeight` (32) above the floor (the same extension applies to the default box without selection). The mod draws both (margin fainter). **anchor = the ground block the wand targeted** (local y=0 is that layer); facing = the player's horizontal look direction |
 | `job_control` | `action: 'cancel'\|'undo'\|'redo'\|'confirm'\|'reject', player, jobId?` → `{ message, jobId? }`. Without jobId the player's active (or latest) job is used. undo/redo = the player's undo stack (a whole AI job is one step). confirm/reject answer a pending `ask_player` with "yes"/"no" |
 | `player_reply` | `player, jobId?, text` (answer to an agent question; the agent asks in chat with numbered options → `/mcai reply <number or text>`) → `{ message }` |
 | `tool_request` | `player, tool, args` — non-AI WorldEdit-style operations executed by the engine in world space with per-player clipboards: `copy`/`cut {selection, origin?}`, `paste {at, ignoreAir?}`, `rotate {degrees}`, `flip {axis:'x'\|'z'}`, `undo`, `redo`, `set {selection, block}` (block = pattern), `replace {selection, from (mask), block}`, `clear {selection}`, `stack {selection, count, direction}`, `move {selection, offset}`, `save {name, description?}`, `load {name}`, `list {query?}` → `{ message, ... }` |
@@ -169,7 +169,14 @@ Binary arrays are base64 of little-endian typed arrays.
 | `job_update` | `jobId, player, state ('queued'\|'thinking'\|'building'\|'reviewing'\|'done'\|'failed'\|'cancelled'), progress 0..1, stage, detail, costUsd` → `{}` — one boss bar per job, shown to `player` (re-attached when they rejoin), removed 3 s after a final state and on engine disconnect |
 | `status` | → `{ tick, mspt, queuedTasks, jobBars, players }` — cheap health probe (mspt excludes mcAI's own end-of-tick work; use the tick rate) |
 
-`PlayerNotification = { target: string /* player name or '@a' */, kind: 'chat'|'actionbar'|'title'|'toast'|'sound', text?: string /* plain or JSON text component */, sound?: string }`
+`PlayerNotification = { target: string /* player name or '@a' */, kind: 'chat'|'actionbar'|'title'|'toast'|'sound', text?: string /* plain or JSON text component */, sound?: string, options?: string[], actions?: ('undo'|'redo'|'cancel'|'viewer')[] }`
+
+Chat buttons (mod): `options` are rendered as clickable answers `[1 …] [2 …] [Own answer…]` (→ `/mcai reply N`);
+`actions` append `[Undo] [Redo] [Cancel] [Open viewer]`. Without these fields the mod falls back to
+heuristics: a text with `1) a  2) b … /mcai reply` gets answer buttons, and the first `[mcAI] …` chat
+message after the player's job reached done/failed/cancelled gets `[Undo] [Redo] [Open viewer]`.
+The viewer link is `http://127.0.0.1:<engine port>/` in singleplayer (config `engine.viewerUrl` overrides;
+hidden on dedicated servers by default).
 
 Timeouts (engine side): 30 s default; get_blocks 30 s + 1 s per 20k blocks; set_blocks 60 s + 2 ms
 per block per message; big set_blocks are split into messages of ≤ 200 000 blocks (each with its
@@ -178,12 +185,21 @@ connection replaces the older one (close code 4001). The engine pings every 30 s
 
 Block placement in the mod (`mod/…/world/PlaceBlocksTask.java`):
 
-* All block requests (`get_blocks`, `set_blocks`, `heightmap`, `biomes`) run on the server thread
-  through one **FIFO** tick queue (a read sent after a write sees it), at the end of each tick within
-  a wall-clock budget (`tickBudgetMs`, default 15 ms, `config/mcai.json`) and at most `maxPerTick`
-  placements per tick (default 20 000). `players`/`entities`/`status`/`notify`/`command` are not
-  queued behind builds. Chunks are loaded/generated as needed and held by a non-persistent ticket
-  until the task finishes.
+* Block requests run on the server thread, time-sliced at the end of each tick within a wall-clock
+  budget (`tickBudgetMs`, default 15 ms, `config/mcai.json`), in two FIFO lanes: **reads**
+  (`get_blocks`, `heightmap`, `biomes`) and **writes** (`set_blocks`, at most `maxPerTick` placements
+  per tick, default 20 000). Reads never wait behind a long build (they get up to half the budget while
+  writes are pending); a read sent while a write is still running may see part of it, so the engine
+  awaits its own writes before reading (it does). `players`/`entities`/`status`/`notify`/`command`
+  run between ticks and are never queued.
+* **Chunks never block the server thread:** a task requests all chunks it needs up front with a
+  non-persistent ticket (loading/generation happens on the chunk worker threads) and yields until they
+  are ready; afterwards they stay loaded ~15 s for the engine's next request (a chunk that does not load
+  within 60 s fails the task). Steps over 100 ms are logged (`mcai: slow … step`).
+* **Paused singleplayer** (pause menu, window in the background with pause-on-lost-focus): the
+  integrated server stops ticking, so the bridge keeps serving the engine by running the world work as
+  server tasks between the skipped ticks; the world itself stays paused (the pause menu shows "mcAI
+  keeps building while the game is paused").
 * Phase 1 records the previous state (+ block-entity SNBT) of every position for `previous`, then
   places with flags `UPDATE_CLIENTS | UPDATE_SKIP_ALL_SIDEEFFECTS` (no neighbour updates, no drops,
   no onPlace side effects — sand does not fall, containers do not spill) and applies block-entity
@@ -199,7 +215,29 @@ Block placement in the mod (`mod/…/world/PlaceBlocksTask.java`):
 * If the engine disconnects mid-job, running tasks still finish (the world stays consistent); their
   answers are dropped. The mod reconnects (1 s … 30 s backoff) and sends a fresh `hello`.
 * Measured on the dedicated test server (`tools/mod-protocol-test.mjs`): 2 000 000 blocks in one
-  37 MB message in ≈ 11 s at a steady 20 TPS (≈ 3.5 s of server-thread work spread over ~220 ticks).
+  37 MB message in ≈ 12 s at a steady 20 TPS (≈ 3.3 s of server-thread work spread over ~230 ticks).
+
+### Engine discovery & auto-start (mod)
+
+The mod connects to the engine named in `~/.mcai/engine.json` (or `$MCAI_HOME/engine.json`; config
+`engine.port`/`engine.token` override). It re-reads the file every 2 s while disconnected and reconnects
+at once when the file changes. **Auto-start** (config `engine.autoStart`; default `true` in
+singleplayer/LAN, `false` on dedicated servers): if no engine runs (no engine.json, or its `pid` is dead),
+the mod starts one at server start. Command resolution:
+
+1. config `engine.command` (a command line, e.g. `node /path/engine/src/cli.ts serve`);
+2. env `MCAI_ENGINE` — an engine directory (→ `node <dir>/src/cli.ts serve`) or a command line;
+3. **`~/.mcai/engine-path`** (written by `./mcai setup`): line 1 = absolute path of the engine directory,
+   line 2 (optional) = absolute path of the `node` binary (launchers do not see the shell PATH) →
+   `<node> <dir>/src/cli.ts serve` with the engine directory as working directory;
+4. otherwise the player is told to run `./mcai setup`.
+
+A leading bare `node` is located on PATH plus common install dirs (Homebrew, nvm, volta, fnm, …) and must
+be ≥ 22.18; `claude` is looked up the same way (or `claudePath` in `~/.mcai/config.json`) — missing tools
+are reported in the prompt GUI with exact fix instructions. The child gets PATH = node's dir + claude's
+dir + the inherited PATH, output goes to `<game dir>/logs/mcai-engine.log`. An engine the mod started is
+stopped when the game exits (dedicated: when the server stops); an engine that exits on its own is
+reported ("stopped unexpectedly (exit code N) — see logs/mcai-engine.log").
 
 ## 6. Engine HTTP surface (127.0.0.1 only)
 

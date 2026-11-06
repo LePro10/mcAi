@@ -31,7 +31,8 @@ public final class EngineClient {
 
 	private static final long MIN_BACKOFF_MS = 1_000;
 	private static final long MAX_BACKOFF_MS = 30_000;
-	private static final long NO_ENGINE_POLL_MS = 5_000;
+	private static final long NO_ENGINE_POLL_MS = 2_000;
+	private static final long FILE_CHECK_MS = 1_000;
 
 	private final McaiConfig config;
 	private final Listener listener;
@@ -43,6 +44,8 @@ public final class EngineClient {
 	private CompletableFuture<?> sendChain = CompletableFuture.completedFuture(null);
 	private int attempt;
 	private String lastProblem = "";
+	private volatile EngineEndpoint endpoint;
+	private long engineJsonStamp;
 
 	public EngineClient(McaiConfig config, ScheduledExecutorService io, Listener listener) {
 		this.config = config;
@@ -53,6 +56,20 @@ public final class EngineClient {
 
 	public boolean isConnected() {
 		return socket != null;
+	}
+
+	/** Endpoint of the current (or last) connection, or null. */
+	public EngineEndpoint endpoint() {
+		return endpoint;
+	}
+
+	private static long engineJsonStamp() {
+		try {
+			java.nio.file.Path f = EngineEndpoint.mcaiHome().resolve("engine.json");
+			return java.nio.file.Files.isRegularFile(f) ? java.nio.file.Files.getLastModifiedTime(f).toMillis() : 0;
+		} catch (java.io.IOException e) {
+			return 0;
+		}
 	}
 
 	public void start() {
@@ -92,6 +109,7 @@ public final class EngineClient {
 		if (!running) {
 			return;
 		}
+		engineJsonStamp = engineJsonStamp();
 		EngineEndpoint ep = EngineEndpoint.discover(config);
 		if (ep == null) {
 			problem("waiting for the mcAI engine (no " + EngineEndpoint.mcaiHome().resolve("engine.json") + ")");
@@ -117,7 +135,22 @@ public final class EngineClient {
 		long delay = Math.min(MAX_BACKOFF_MS, MIN_BACKOFF_MS << Math.min(attempt, 5));
 		delay += ThreadLocalRandom.current().nextLong(delay / 4 + 1);
 		attempt++;
-		io.schedule(this::connect, delay, TimeUnit.MILLISECONDS);
+		waitThenConnect(System.currentTimeMillis() + delay);
+	}
+
+	/** Wait until the deadline, but connect at once when engine.json changes (engine (re)started). */
+	private void waitThenConnect(long deadline) {
+		if (!running) {
+			return;
+		}
+		if (System.currentTimeMillis() >= deadline) {
+			connect();
+		} else if (engineJsonStamp() != engineJsonStamp) {
+			attempt = 0;
+			connect();
+		} else {
+			io.schedule(() -> waitThenConnect(deadline), Math.min(FILE_CHECK_MS, Math.max(1, deadline - System.currentTimeMillis())), TimeUnit.MILLISECONDS);
+		}
 	}
 
 	/** Log connection problems once per distinct message (no log spam while the engine is down). */
@@ -163,6 +196,7 @@ public final class EngineClient {
 					return;
 				}
 				socket = ws;
+				EngineClient.this.endpoint = endpoint;
 				attempt = 0;
 				lastProblem = "";
 				McaiMod.LOG.info("mcai: connected to engine {} ({})", endpoint.uri(), endpoint.source());

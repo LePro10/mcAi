@@ -1,0 +1,20 @@
+{
+	"schemaVersion": 1,
+	"id": "mcai-gametest",
+	"version": "2.0.0",
+	"name": "mcAI client game tests",
+	"license": "MIT",
+	"environment": "*",
+	"entrypoints": {
+		"fabric-client-gametest": [
+			"dev.mcai.gametest.McaiClientGameTest"
+		]
+	},
+	"depends": {
+		"mcai": "*",
+		"fabric-client-gametest-api-v1": "*"
+	},
+	"mixins": [
+		"mcai-gametest.mixins.json"
+	]
+}

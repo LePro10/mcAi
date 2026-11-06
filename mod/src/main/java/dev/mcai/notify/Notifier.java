@@ -20,9 +20,11 @@ import net.minecraft.sounds.SoundSource;
 /** notify: chat / actionbar / title / toast / sound to a player or {@code @a}. Server thread. */
 public final class Notifier {
 	private final MinecraftServer server;
+	private final ChatDecorator decorator;
 
-	public Notifier(MinecraftServer server) {
+	public Notifier(MinecraftServer server, ChatDecorator decorator) {
 		this.server = server;
+		this.decorator = decorator;
 	}
 
 	/** @return number of players reached */
@@ -34,7 +36,7 @@ public final class Notifier {
 		List<ServerPlayer> players = targets(target);
 		for (ServerPlayer p : players) {
 			switch (kind) {
-				case "chat" -> p.sendSystemMessage(text);
+				case "chat" -> p.sendSystemMessage(decorator.decorate(p, n, text));
 				case "actionbar" -> p.sendOverlayMessage(text);
 				case "title" -> {
 					p.connection.send(new ClientboundSetTitlesAnimationPacket(10, 60, 20));

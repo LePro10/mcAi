@@ -2,6 +2,8 @@ package dev.mcai.item;
 
 import dev.mcai.selection.Selection;
 import dev.mcai.selection.Selections;
+import dev.mcai.net.ServerNetworking;
+import dev.mcai.ui.ClientHooks;
 import dev.mcai.ui.Msg;
 import net.minecraft.core.BlockPos;
 import net.minecraft.server.level.ServerPlayer;
@@ -35,7 +37,13 @@ public final class ArchitectWandItem extends Item {
 
 	@Override
 	public InteractionResult use(Level level, Player player, InteractionHand hand) {
-		if (player instanceof ServerPlayer sp) {
+		if (level.isClientSide()) {
+			Runnable open = ClientHooks.openPrompt;
+			if (open != null) {
+				open.run(); // mod client: the prompt GUI
+			}
+		} else if (player instanceof ServerPlayer sp && !ServerNetworking.hasMod(sp)) {
+			// vanilla client: explain in chat
 			Selection sel = Selections.get(sp);
 			if (sel != null && sel.complete()) {
 				BlockPos a = sel.min();

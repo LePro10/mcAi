@@ -93,6 +93,7 @@ install() {
   # properties for a local, offline, flat dev server
   touch "$DIR/server.properties"
   set_prop online-mode false
+  set_prop white-list false
   set_prop server-port "$PORT"
   set_prop spawn-protection 0
   set_prop enable-rcon false

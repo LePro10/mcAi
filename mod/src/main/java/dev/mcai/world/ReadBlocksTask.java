@@ -51,6 +51,13 @@ public final class ReadBlocksTask implements TickTask {
 		cx = minCx;
 		cz = minCz;
 		sy = minSy;
+		it.unimi.dsi.fastutil.longs.LongArrayList keys = new it.unimi.dsi.fastutil.longs.LongArrayList();
+		for (int z = minCz; z <= maxCz; z++) {
+			for (int x = minCx; x <= maxCx; x++) {
+				keys.add(net.minecraft.world.level.ChunkPos.pack(x, z));
+			}
+		}
+		tickets.prefetch(keys);
 	}
 
 	public CompletableFuture<Result> future() {
@@ -64,8 +71,10 @@ public final class ReadBlocksTask implements TickTask {
 			return true;
 		}
 		while (cz <= maxCz) {
-			tickets.hold(cx << 4, cz << 4);
-			LevelChunk chunk = level.getChunk(cx, cz);
+			if (!tickets.ready(cx, cz)) {
+				return false; // loaded/generated off-thread; continue next tick
+			}
+			LevelChunk chunk = level.getChunkSource().getChunkNow(cx, cz);
 			while (sy <= maxSy) {
 				readSection(chunk, sy);
 				sy++;
@@ -132,6 +141,11 @@ public final class ReadBlocksTask implements TickTask {
 		palette.add(str);
 		stringIndex.put(str, idx);
 		return idx;
+	}
+
+	@Override
+	public String toString() {
+		return "get_blocks(" + box.sizeX() + "x" + box.sizeY() + "x" + box.sizeZ() + ", chunk " + cx + "," + cz + ", " + tickets.waits() + " chunk loads)";
 	}
 
 	@Override

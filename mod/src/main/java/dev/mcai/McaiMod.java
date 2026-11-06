@@ -3,7 +3,9 @@ package dev.mcai;
 import dev.mcai.bridge.Bridge;
 import dev.mcai.command.McaiCommands;
 import dev.mcai.config.McaiConfig;
+import dev.mcai.engine.EngineLauncher;
 import dev.mcai.item.McaiItems;
+import dev.mcai.net.ServerNetworking;
 import dev.mcai.selection.SelectionOutline;
 import dev.mcai.selection.Selections;
 import dev.mcai.world.ChunkTickets;
@@ -20,10 +22,16 @@ public final class McaiMod implements ModInitializer {
 	public static final Logger LOG = LoggerFactory.getLogger("mcai");
 
 	private static volatile Bridge bridge;
+	private static volatile McaiConfig config = new McaiConfig();
 
 	/** The bridge of the running server, or null. */
 	public static Bridge bridge() {
 		return bridge;
+	}
+
+	/** Config of the running server (defaults before the first server start). */
+	public static McaiConfig config() {
+		return config;
 	}
 
 	@Override
@@ -31,8 +39,13 @@ public final class McaiMod implements ModInitializer {
 		ChunkTickets.register();
 		McaiItems.register();
 		McaiCommands.register();
+		ServerNetworking.register();
+		ServerLifecycleEvents.SERVER_STARTING.register(server -> {
+			config = McaiConfig.load(FabricLoader.getInstance().getConfigDir().resolve("mcai.json"));
+			// start early so the engine is up by the time the world is loaded
+			EngineLauncher.ensureRunning(config, !server.isDedicatedServer(), FabricLoader.getInstance().getGameDir());
+		});
 		ServerLifecycleEvents.SERVER_STARTED.register(server -> {
-			McaiConfig config = McaiConfig.load(FabricLoader.getInstance().getConfigDir().resolve("mcai.json"));
 			Bridge b = new Bridge(server, config);
 			bridge = b;
 			if (config.autoConnect) {
@@ -53,6 +66,13 @@ public final class McaiMod implements ModInitializer {
 				b.stop();
 			}
 			Selections.reset();
+		});
+		ServerLifecycleEvents.SERVER_STOPPED.register(server -> {
+			// a dedicated server stops the engine it started; in singleplayer the engine keeps
+			// running across worlds and is stopped when the game exits (client entrypoint)
+			if (server.isDedicatedServer()) {
+				EngineLauncher.stopIfOwned();
+			}
 		});
 		LOG.info("mcAI {} initialized", FabricLoader.getInstance().getModContainer(MOD_ID)
 				.map(c -> c.getMetadata().getVersion().getFriendlyString()).orElse("dev"));

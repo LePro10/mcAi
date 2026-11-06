@@ -395,7 +395,7 @@ if (!args.includes('--skip-perf')) {
     await new Promise((r) => setTimeout(r, 500));
     polling = false;
     await poll;
-    check(r.ok && r.failed.length === 0, `placed ${r.placed?.toLocaleString('en')} (${(bytes / 1e6).toFixed(1)} MB message) in ${ms} ms round-trip; mod ${r.ms?.toFixed(0)} ms over ${r.ticks} ticks (place ${r.placeMs?.toFixed(0)} ms, shapes ${r.shapeMs?.toFixed(0)} ms); ${r.shapeUpdates} shape updates`, r.error);
+    check(r.ok && r.failed.length === 0, `placed ${r.placed?.toLocaleString('en')} (${(bytes / 1e6).toFixed(1)} MB message) in ${ms} ms round-trip; mod ${r.ms?.toFixed(0)} ms over ${r.ticks} ticks (place ${r.placeMs?.toFixed(0)} ms, shapes ${r.shapeMs?.toFixed(0)} ms, chunk waits ${r.chunkWaitTicks} ticks); ${r.shapeUpdates} shape updates`, r.error);
     const during = samples.filter((s) => s.t >= t0 && s.t <= t0 + ms);
     if (during.length >= 2) {
       const a = during[0], z = during[during.length - 1];

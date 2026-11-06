@@ -20,6 +20,12 @@ public final class McaiConfig {
 		public String host = "127.0.0.1";
 		public int port = 0;
 		public String token = "";
+		/** Start the engine if none is running. null = true for singleplayer/LAN, false on dedicated servers. */
+		public Boolean autoStart = null;
+		/** Command that starts the engine (overrides MCAI_ENGINE and ~/.mcai/engine-path), e.g. "node /path/engine/src/cli.ts serve". */
+		public String command = "";
+		/** Web viewer URL shown in chat; empty = http://127.0.0.1:<engine port>/ on singleplayer, hidden on dedicated servers. */
+		public String viewerUrl = "";
 	}
 
 	public Engine engine = new Engine();
@@ -30,10 +36,14 @@ public final class McaiConfig {
 	public double tickBudgetMs = 15.0;
 	/** Mirrors the engine option: allow `time` / `weather` commands from the engine. */
 	public boolean allowTimeWeather = false;
+	/** Permission level needed for AI builds and /mcai (0–4; the singleplayer owner is always allowed). */
+	public int buildPermissionLevel = 2;
+	/** Minimum seconds between two build requests of one player. */
+	public int buildCooldownSeconds = 10;
 	/** Extra command prefixes the engine may run (same meaning as the engine's commandAllowlist). */
 	public List<String> commandAllowlist = new ArrayList<>();
 
-	private static final Gson GSON = new GsonBuilder().setPrettyPrinting().create();
+	private static final Gson GSON = new GsonBuilder().setPrettyPrinting().serializeNulls().create();
 
 	public static McaiConfig load(Path file) {
 		McaiConfig cfg = new McaiConfig();
@@ -57,6 +67,14 @@ public final class McaiConfig {
 			cfg.commandAllowlist = new ArrayList<>();
 		}
 		cfg.maxPerTick = Math.max(1, cfg.maxPerTick);
+		cfg.buildPermissionLevel = Math.clamp(cfg.buildPermissionLevel, 0, 4);
+		cfg.buildCooldownSeconds = Math.max(0, cfg.buildCooldownSeconds);
+		if (cfg.engine.command == null) {
+			cfg.engine.command = "";
+		}
+		if (cfg.engine.viewerUrl == null) {
+			cfg.engine.viewerUrl = "";
+		}
 		cfg.tickBudgetMs = Math.clamp(cfg.tickBudgetMs, 1.0, 45.0);
 		return cfg;
 	}

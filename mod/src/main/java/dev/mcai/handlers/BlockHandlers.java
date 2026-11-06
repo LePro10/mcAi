@@ -9,6 +9,7 @@ import dev.mcai.protocol.ProtocolException;
 import dev.mcai.protocol.TypedArrays;
 import dev.mcai.world.BlockBox;
 import dev.mcai.world.BlockStates;
+import dev.mcai.world.ChunkTickets;
 import dev.mcai.world.ColumnSampleTask;
 import dev.mcai.world.Dimensions;
 import dev.mcai.world.PlaceBlocksTask;
@@ -25,7 +26,7 @@ import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.level.biome.Biome;
 import net.minecraft.world.level.levelgen.Heightmap;
 
-/** get_blocks, set_blocks, heightmap, biomes — all run through the tick scheduler (FIFO). */
+/** get_blocks, set_blocks, heightmap, biomes — time-sliced through the tick scheduler (reads and writes in separate FIFO lanes). */
 public final class BlockHandlers {
 	public static final long MAX_READ_VOLUME = 1L << 25;      // 33.5M blocks
 	public static final int MAX_HEIGHTMAP_COLUMNS = 1 << 22;
@@ -50,7 +51,7 @@ public final class BlockHandlers {
 		return ctx.onServer(() -> {
 			ServerLevel level = Dimensions.level(ctx.server(), Json.str(req, "dimension", null));
 			ReadBlocksTask task = new ReadBlocksTask(level, box, withNbt);
-			ctx.scheduler().submit(task);
+			ctx.scheduler().submitRead(task);
 			return task.future();
 		}).thenCompose(f -> f).thenApplyAsync(r -> {
 			JsonObject out = new JsonObject();
@@ -83,6 +84,16 @@ public final class BlockHandlers {
 		}).thenCompose(f -> f).thenApplyAsync(BlockHandlers::placeResult, ctx.workers());
 	}
 
+	private static it.unimi.dsi.fastutil.longs.LongArrayList chunkKeys(int x0, int z0, int x1, int z1) {
+		it.unimi.dsi.fastutil.longs.LongArrayList keys = new it.unimi.dsi.fastutil.longs.LongArrayList();
+		for (int cz = z0 >> 4; cz <= z1 >> 4; cz++) {
+			for (int cx = x0 >> 4; cx <= x1 >> 4; cx++) {
+				keys.add(net.minecraft.world.level.ChunkPos.pack(cx, cz));
+			}
+		}
+		return keys;
+	}
+
 	private static JsonObject placeResult(PlaceBlocksTask.Result r) {
 		JsonObject out = new JsonObject();
 		out.addProperty("placed", r.placed());
@@ -104,6 +115,7 @@ public final class BlockHandlers {
 		out.addProperty("ms", r.nanos() / 1_000_000.0);
 		out.addProperty("placeMs", r.placeNanos() / 1_000_000.0);
 		out.addProperty("shapeMs", r.shapeNanos() / 1_000_000.0);
+		out.addProperty("chunkWaitTicks", r.chunkWaitTicks());
 		return out;
 	}
 
@@ -125,14 +137,19 @@ public final class BlockHandlers {
 		return ctx.onServer(() -> {
 			ServerLevel level = Dimensions.level(ctx.server(), Json.str(req, "dimension", null));
 			// Y of the highest non-air block
-			ColumnSampleTask<short[]> task = new ColumnSampleTask<>(data.length,
+			ChunkTickets tickets = new ChunkTickets(level);
+			tickets.prefetch(chunkKeys(x0, z0, x1, z1));
+			ColumnSampleTask<short[]> task = new ColumnSampleTask<>("heightmap", data.length, tickets,
 					i -> {
 						int x = x0 + i % sx, z = z0 + i / sx;
-						// load the chunk (Level#getHeight answers minY for unloaded chunks); the chunk
-						// heightmap API returns the Y of the highest non-air block directly
-						data[i] = (short) level.getChunk(x >> 4, z >> 4).getHeight(type, x & 15, z & 15);
+						if (!tickets.ready(x >> 4, z >> 4)) {
+							return false;
+						}
+						// the chunk heightmap API returns the Y of the highest non-air block directly
+						data[i] = (short) level.getChunkSource().getChunkNow(x >> 4, z >> 4).getHeight(type, x & 15, z & 15);
+						return true;
 					}, () -> data);
-			ctx.scheduler().submit(task);
+			ctx.scheduler().submitRead(task);
 			return task.future();
 		}).thenCompose(f -> f).thenApplyAsync(d -> {
 			JsonObject out = new JsonObject();
@@ -159,15 +176,22 @@ public final class BlockHandlers {
 		BlockPos.MutableBlockPos pos = new BlockPos.MutableBlockPos();
 		return ctx.onServer(() -> {
 			ServerLevel level = Dimensions.level(ctx.server(), Json.str(req, "dimension", null));
-			ColumnSampleTask<char[]> task = new ColumnSampleTask<>(data.length, i -> {
+			ChunkTickets tickets = new ChunkTickets(level);
+			tickets.prefetch(chunkKeys(box.minX(), box.minZ(), box.maxX(), box.maxZ()));
+			ColumnSampleTask<char[]> task = new ColumnSampleTask<>("biomes", data.length, tickets, i -> {
 				int x = i % nx, z = (i / nx) % nz, y = i / (nx * nz);
-				Holder<Biome> b = level.getBiome(pos.set(box.minX() + x * step, box.minY() + y * step, box.minZ() + z * step));
+				pos.set(box.minX() + x * step, box.minY() + y * step, box.minZ() + z * step);
+				if (!tickets.ready(pos.getX() >> 4, pos.getZ() >> 4)) {
+					return false;
+				}
+				Holder<Biome> b = level.getBiome(pos);
 				data[i] = index.computeIfAbsent(b, h -> {
 					palette.add(h.unwrapKey().map(k -> k.identifier().toString()).orElse("minecraft:plains"));
 					return (char) (palette.size() - 1);
 				});
+				return true;
 			}, () -> data);
-			ctx.scheduler().submit(task);
+			ctx.scheduler().submitRead(task);
 			return task.future();
 		}).thenCompose(f -> f).thenApplyAsync(d -> {
 			JsonObject out = new JsonObject();

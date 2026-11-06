@@ -25,6 +25,38 @@ loom {
 	}
 }
 
+// Client game tests (fabric-client-gametest-api-v1): ./gradlew runClientGameTest
+// Source set src/gametest (client tests, separate mod id "mcai-gametest").
+// The dedicated-server part of the tests needs the Minecraft EULA; it is only accepted when the
+// operator sets MCAI_ACCEPT_EULA=1 (see tools/README.md).
+fabricApi {
+	configureTests {
+		createSourceSet = true
+		modId = "mcai-gametest"
+		enableGameTests = false
+		enableClientGameTests = true
+		eula = providers.environmentVariable("MCAI_ACCEPT_EULA").map { it == "1" }.orElse(false)
+	}
+}
+
+// Dev/test clients never wait on Mojang services (they may be unreachable, and tests must not
+// depend on them): authlib's discovery host points at a closed local port → fails instantly.
+loom.runs.matching { it.name == 'clientGameTest' }.configureEach {
+	vmArg '-Dminecraft.api.discovery.host=http://127.0.0.1:9'
+	// macOS: don't block the render thread on main-thread GL context updates (hidden test windows)
+	environmentVariable 'SDL_MAC_OPENGL_ASYNC_DISPATCH', '1'
+	// the tests start tools/fake-engine.mjs through the mod's engine auto-start, isolated in this home
+	vmArg "-Dmcai.repoRoot=${rootDir.parentFile.absolutePath}"
+	environmentVariable 'MCAI_HOME', file('build/run/clientGameTest/mcai-home').absolutePath
+	def dedicated = providers.environmentVariable('MCAI_GAMETEST_DEDICATED').getOrNull()
+	if (dedicated) {
+		vmArg "-Dmcai.gametest.dedicated=${dedicated}"
+	}
+}
+tasks.matching { it.name == 'runClientGameTest' }.configureEach {
+	timeout = java.time.Duration.ofMinutes(4) // hard limit: a hung client is killed (a full run takes ~2 min)
+}
+
 dependencies {
 	minecraft "com.mojang:minecraft:${project.minecraft_version}"
 	implementation "net.fabricmc:fabric-loader:${project.loader_version}"
